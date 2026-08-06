@@ -36,7 +36,7 @@ const page = `<!doctype html>
       <article><span class="idx">B</span><div><p class="label">当前状态</p><h2>页面在线</h2></div></article>
       <article><span class="idx">C</span><div><p class="label">推荐测试</p><h2>无痕窗口打开</h2></div></article>
     </section>
-    <footer><span>Built for a simple question.</span><span>Can the outside world see this?</span></footer>
+    <footer><span>Built for a simple question.</span><span>Public test · Singapore · 2026</span></footer>
   </main>
   <script>
     const clock=document.querySelector('#clock');
