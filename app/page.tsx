@@ -22,7 +22,8 @@ const courses: Course[] = [
   { code: "EE6407", name: "Genetic Algorithms & Machine Learning", zh: "遗传算法与机器学习", color: "#4d9fe8" },
   { code: "EE6497", name: "Pattern Recognition & Deep Learning", zh: "模式识别与深度学习", color: "#55bfe6" },
 ];
-const shelves = ["All", "Lectures", "Assignments", "Study aids", "Quiz", "Exams"];
+const materialShelves = ["Lectures", "Assignments", "Study aids", "Quiz", "Exams"];
+const shelfFilters = [...materialShelves, "All"];
 
 function SearchIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>;
@@ -161,7 +162,7 @@ export default function Home() {
   const course = courses.find((item) => item.code === courseCode) ?? courses[0];
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const shelfOrder = new Map(shelves.slice(1).map((item, index) => [item, index]));
+    const shelfOrder = new Map(materialShelves.map((item, index) => [item, index]));
     return materials
       .filter((material) => material.course === courseCode && (shelf === "All" || material.shelf === shelf) && (!needle || material.title.toLowerCase().includes(needle)))
       .sort((left, right) => (shelfOrder.get(left.shelf) ?? 99) - (shelfOrder.get(right.shelf) ?? 99) || left.title.localeCompare(right.title, undefined, { numeric: true, sensitivity: "base" }));
@@ -239,7 +240,7 @@ export default function Home() {
 
       <div className="course-heading"><div><small>{course.code}</small><h2>{course.name}</h2><p>{course.zh}</p></div><span>{materials.filter((material) => material.course === courseCode).length} 份资料</span></div>
       <div className="shelf-tabs" role="tablist" aria-label="Material types">
-        {shelves.map((item) => ({ item, count: materials.filter((material) => material.course === courseCode && (item === "All" || material.shelf === item)).length })).filter(({ item, count }) => item === "All" || count > 0).map(({ item, count }) => <button key={item} className={shelf === item ? "active" : ""} onClick={() => setShelf(item)}>{item}<small>{count}</small></button>)}
+        {shelfFilters.map((item) => ({ item, count: materials.filter((material) => material.course === courseCode && (item === "All" || material.shelf === item)).length })).filter(({ item, count }) => item === "All" || count > 0).map(({ item, count }) => <button key={item} className={shelf === item ? "active" : ""} onClick={() => setShelf(item)}>{item}<small>{count}</small></button>)}
       </div>
 
       <div className="file-list">
@@ -272,7 +273,7 @@ export default function Home() {
       <button className="close" onClick={() => setUploadOpen(false)}>×</button><span className="modal-label">UPLOAD PDF</span><h2>放进资料库</h2><p>访问网站不需要登录；为了防止公共存储被滥用，上传仅限资料库所有者。</p>
       {!session.owner ? <div className="signin-panel"><ShieldIcon /><strong>需要所有者身份</strong><small>登录只用于上传权限，不影响任何人浏览公开网站。</small><a href="/signin-with-chatgpt">使用 ChatGPT 登录</a></div> : <>
         <div className="upload-course-tabs">{courses.map((item) => <button key={item.code} className={uploadCourse === item.code ? "active" : ""} onClick={() => setUploadCourse(item.code)}>{item.code}</button>)}</div>
-        <div className="upload-shelf-tabs">{shelves.slice(1).map((item) => <button key={item} className={uploadShelf === item ? "active" : ""} onClick={() => setUploadShelf(item)}>{item}</button>)}</div>
+        <div className="upload-shelf-tabs">{materialShelves.map((item) => <button key={item} className={uploadShelf === item ? "active" : ""} onClick={() => setUploadShelf(item)}>{item}</button>)}</div>
         <button className={`drop-zone ${uploadFile ? "has-file" : ""}`} onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const file = event.dataTransfer.files[0]; if (file?.type === "application/pdf" || file?.name.toLowerCase().endsWith(".pdf")) setUploadFile(file); }}><UploadIcon /><strong>{uploadFile ? uploadFile.name : "选择或拖入 PDF"}</strong><small>{uploadFile ? formatBytes(uploadFile.size) : "单个文件不超过 75 MB"}</small></button>
         <input ref={fileInputRef} hidden type="file" accept="application/pdf,.pdf" onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} />
         <div className="visibility-tabs"><button className={uploadVisibility === "private" ? "active" : ""} onClick={() => setUploadVisibility("private")}><strong>仅自己</strong><small>适合课程受限资料</small></button><button className={uploadVisibility === "public" ? "active" : ""} onClick={() => setUploadVisibility("public")}><strong>公开分享</strong><small>所有访客确认后可读</small></button></div>

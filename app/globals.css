@@ -42,7 +42,7 @@ main { min-height: 100vh; position: relative; overflow: hidden; background: line
 .intro { min-height: 220px; display: flex; align-items: center; justify-content: space-between; gap: 50px; padding-block: 42px 30px; }
 .overline { color: #4ba6bd; font-size: 9px; letter-spacing: .18em; }
 h1 { margin: 11px 0 8px; font-family: Georgia, "Songti SC", serif; font-size: clamp(38px, 4.2vw, 55px); line-height: 1.08; font-weight: 400; letter-spacing: -.035em; }
-.intro p { max-width: 570px; margin: 0; color: #6f98a5; font-size: 13px; line-height: 1.8; }
+.intro p { max-width: 570px; margin: 0; color: #6f98a5; font-size: 14px; line-height: 1.75; }
 .sea-orb { flex: 0 0 auto; min-width: 170px; padding: 16px 18px; display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; column-gap: 11px; align-items: baseline; border: 1px solid rgba(36, 151, 181, .16); border-radius: 14px; color: #155f76; background: rgba(255,255,255,.58); box-shadow: 0 12px 35px rgba(36, 158, 191, .09); backdrop-filter: blur(16px); }
 .sea-orb small { grid-column: 1 / -1; margin-bottom: 5px; color: #72a0ad; font-size: 8px; }
 .sea-orb span { font-family: Georgia, serif; font-size: 31px; line-height: 1; }
@@ -55,39 +55,39 @@ h1 { margin: 11px 0 8px; font-family: Georgia, "Songti SC", serif; font-size: cl
 .course-tabs button { height: 46px; min-width: 100px; padding: 0 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid transparent; border-radius: 11px; color: #6793a0; background: transparent; cursor: pointer; transition: .2s ease; }
 .course-tabs button:hover { background: rgba(59, 177, 207, .07); }
 .course-tabs button.active { color: #0a7598; border-color: color-mix(in srgb, var(--tab-color) 28%, transparent); background: color-mix(in srgb, var(--tab-color) 10%, white); box-shadow: inset 0 -2px var(--tab-color); }
-.course-tabs button span { font-size: 11px; font-weight: 750; letter-spacing: .05em; }
-.course-tabs button small { min-width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; color: #5e8e9c; background: rgba(255,255,255,.7); font-size: 8px; }
+.course-tabs button span { font-size: 13px; font-weight: 750; letter-spacing: .04em; }
+.course-tabs button small { min-width: 27px; height: 27px; display: grid; place-items: center; border-radius: 50%; color: #5e8e9c; background: rgba(255,255,255,.7); font-size: 10px; }
 .search { width: 220px; height: 42px; flex: 0 0 auto; padding: 0 13px; display: flex; align-items: center; gap: 9px; border: 1px solid rgba(40, 149, 178, .16); border-radius: 13px; background: rgba(244, 252, 253, .8); }
 .search svg { width: 16px; color: #72a7b4; }
-.search input { width: 100%; border: 0; outline: 0; color: #205263; background: transparent; font-size: 11px; }
+.search input { width: 100%; border: 0; outline: 0; color: #205263; background: transparent; font-size: 12px; }
 .search input::placeholder { color: #8bb0ba; }
 .course-heading { margin: 28px 4px 18px; display: flex; align-items: end; justify-content: space-between; }
-.course-heading small { color: #27a4c4; font-size: 8px; letter-spacing: .16em; }
-.course-heading h2 { margin: 5px 0 3px; font-family: Georgia, serif; font-size: clamp(22px, 2.4vw, 29px); font-weight: 400; line-height: 1.2; }
-.course-heading p { margin: 0; color: #78a0ab; font-size: 10px; }
-.course-heading > span { color: #6e98a4; font-size: 9px; }
+.course-heading small { color: #27a4c4; font-size: 10px; letter-spacing: .14em; }
+.course-heading h2 { margin: 6px 0 4px; font-family: Georgia, serif; font-size: clamp(26px, 2.7vw, 34px); font-weight: 400; line-height: 1.2; }
+.course-heading p { margin: 0; color: #78a0ab; font-size: 12px; }
+.course-heading > span { color: #6e98a4; font-size: 11px; }
 .shelf-tabs { display: flex; gap: 7px; padding: 0 4px 16px; border-bottom: 1px solid rgba(45, 145, 172, .12); overflow-x: auto; scrollbar-width: none; }
 .shelf-tabs::-webkit-scrollbar { display: none; }
-.shelf-tabs button { height: 34px; padding: 0 11px; display: flex; align-items: center; gap: 8px; white-space: nowrap; border: 1px solid rgba(47, 149, 177, .12); border-radius: 11px; color: #6e98a5; background: rgba(255,255,255,.42); font-size: 9px; cursor: pointer; transition: .2s ease; }
+.shelf-tabs button { height: 39px; padding: 0 14px; display: flex; align-items: center; gap: 9px; white-space: nowrap; border: 1px solid rgba(47, 149, 177, .12); border-radius: 11px; color: #5f8c99; background: rgba(255,255,255,.42); font-size: 11px; cursor: pointer; transition: .2s ease; }
 .shelf-tabs button.active { color: white; border-color: transparent; background: #24a9ce; box-shadow: 0 7px 17px rgba(27, 156, 195, .18); }
-.shelf-tabs button small { min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.42); font-size: 7px; }
+.shelf-tabs button small { min-width: 21px; height: 21px; display: grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.42); font-size: 9px; }
 .file-list { display: block; margin: 16px 4px 4px; overflow: hidden; border: 1px solid rgba(43, 144, 171, .13); border-radius: 13px; background: rgba(252,255,255,.7); }
-.file-columns { min-height: 38px; padding: 0 15px 0 52px; display: grid; grid-template-columns: minmax(0, 1fr) 140px 90px 90px 24px; align-items: center; gap: 14px; border-bottom: 1px solid rgba(43, 144, 171, .12); color: #83a7b0; font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
+.file-columns { min-height: 42px; padding: 0 15px 0 58px; display: grid; grid-template-columns: minmax(0, 1fr) 140px 90px 90px 24px; align-items: center; gap: 14px; border-bottom: 1px solid rgba(43, 144, 171, .12); color: #759ba5; font-size: 10px; letter-spacing: .04em; }
 .file-columns i { display: block; }
-.file-card { width: 100%; min-width: 0; min-height: 58px; padding: 8px 15px; display: grid; grid-template-columns: 28px minmax(0, 1fr) 140px 90px 90px 24px; align-items: center; gap: 14px; text-align: left; border: 0; border-bottom: 1px solid rgba(43, 144, 171, .1); border-radius: 0; color: #174758; background: transparent; cursor: pointer; transition: background .18s ease; }
+.file-card { width: 100%; min-width: 0; min-height: 66px; padding: 10px 15px; display: grid; grid-template-columns: 34px minmax(0, 1fr) 140px 90px 90px 24px; align-items: center; gap: 14px; text-align: left; border: 0; border-bottom: 1px solid rgba(43, 144, 171, .1); border-radius: 0; color: #174758; background: transparent; cursor: pointer; transition: background .18s ease; }
 .file-card:last-of-type { border-bottom: 0; }
 .file-card:hover { background: rgba(45, 178, 208, .065); }
-.file-icon { width: 28px; height: 32px; display: grid; place-items: center; border: 1px solid rgba(34, 164, 199, .14); border-radius: 8px; color: #22a2c7; background: linear-gradient(145deg, #edfbfd, #d9f5f8); }
-.file-icon svg { width: 14px; }
+.file-icon { width: 34px; height: 39px; display: grid; place-items: center; border: 1px solid rgba(34, 164, 199, .14); border-radius: 9px; color: #22a2c7; background: linear-gradient(145deg, #edfbfd, #d9f5f8); }
+.file-icon svg { width: 16px; }
 .file-copy { min-width: 0; display: flex; flex-direction: column; }
-.file-copy strong { overflow: hidden; font-size: 11px; font-weight: 650; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
-.file-copy small { margin-top: 3px; color: #8aabb3; font-size: 7px; letter-spacing: .05em; }
-.file-type, .file-size { color: #6f98a3; font-size: 9px; }
-.access-pill { padding: 4px 7px; border-radius: 20px; color: #4b91a3; background: #e7f7fa; font-size: 6px; letter-spacing: .1em; }
+.file-copy strong { overflow: hidden; font-size: 13px; font-weight: 650; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.file-copy small { margin-top: 4px; color: #819fa7; font-size: 8px; letter-spacing: .05em; }
+.file-type, .file-size { color: #628d99; font-size: 11px; }
+.access-pill { padding: 5px 8px; border-radius: 20px; color: #4b91a3; background: #e7f7fa; font-size: 8px; letter-spacing: .08em; }
 .access-pill.public { color: #278c79; background: #e4f8f2; }
 .file-arrow { color: #6aa5b4; }
 .file-arrow svg { width: 16px; }
-.file-card.skeleton { height: 58px; opacity: 1; border-bottom: 1px solid rgba(43, 144, 171, .08); background: linear-gradient(100deg, #eff8f8 25%, #fff 44%, #eff8f8 63%); background-size: 300% 100%; animation: shimmer 1.4s linear infinite; }
+.file-card.skeleton { height: 66px; opacity: 1; border-bottom: 1px solid rgba(43, 144, 171, .08); background: linear-gradient(100deg, #eff8f8 25%, #fff 44%, #eff8f8 63%); background-size: 300% 100%; animation: shimmer 1.4s linear infinite; }
 .empty { grid-column: 1 / -1; min-height: 250px; display: grid; place-content: center; justify-items: center; color: #82a8b2; }
 .empty > span { font-size: 42px; color: #50bbd1; }
 .empty strong { margin-top: 4px; color: #477c89; font-family: Georgia, "Songti SC", serif; font-size: 17px; font-weight: 400; }
@@ -194,14 +194,14 @@ body > main > footer small { font-size: 7px; letter-spacing: .16em; }
   .course-tabs { display: flex; }
   .course-tabs button { min-width: 96px; }
   .course-heading { align-items: start; flex-direction: column; gap: 8px; }
-  .course-heading h2 { font-size: 23px; }
+  .course-heading h2 { font-size: 27px; }
   .file-columns { display: none; }
   .file-list { border-radius: 11px; }
-  .file-card { min-height: 61px; grid-template-columns: 28px minmax(0, 1fr) 60px 20px; gap: 10px; padding-inline: 10px; }
+  .file-card { min-height: 66px; grid-template-columns: 32px minmax(0, 1fr) 64px 20px; gap: 10px; padding-inline: 10px; }
   .file-type { display: none; }
-  .file-size { text-align: right; font-size: 8px; }
+  .file-size { text-align: right; font-size: 10px; }
   .access-pill { display: none; }
-  .file-icon { width: 28px; height: 32px; }
+  .file-icon { width: 32px; height: 37px; }
   .confirm-card, .upload-card { padding: 27px 20px 22px; border-radius: 21px; }
   .visibility-tabs { grid-template-columns: 1fr; }
   .reader-overlay { padding: 0; }
