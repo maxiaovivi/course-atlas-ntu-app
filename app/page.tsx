@@ -283,7 +283,7 @@ export default function Home() {
       <p>{pending.visibility === "public" ? "这份 PDF 已被上传者标记为可公开分享。确认后，阅读器才会开始请求文件内容。" : pending.readable ? "这是受保护的课程资料。确认仅用于个人学习，并遵守课程材料的使用范围后再加载。" : "这份 NTU 课程资料没有公开分发许可。公共访客可以浏览目录，但只有资料库所有者登录后才能读取。"}</p>
       <div className="copyright-note"><strong>版权与使用范围</strong><span>课程资料版权归南洋理工大学（NTU）所有，仅供 NTU 学生学习交流。禁止商业使用或再次传播。</span></div>
       {confirmError && <div className="inline-error">{confirmError}</div>}
-      <button className="primary-action" disabled={confirming} onClick={confirmAndProceed}>{confirming ? "正在确认…" : pending.readable ? pendingAction === "download" ? "确认并下载 PDF" : "确认并阅读 PDF" : "所有者登录后读取"}{pendingAction === "download" ? <DownloadIcon /> : <ArrowIcon />}</button>
+      <button className="primary-action" disabled={confirming} onClick={confirmAndProceed}>{confirming ? "正在确认…" : pending.readable ? pendingAction === "download" ? "确认并下载 PDF" : "确认并阅读 PDF" : pendingAction === "download" ? "所有者登录后下载" : "所有者登录后读取"}{pendingAction === "download" ? <DownloadIcon /> : <ArrowIcon />}</button>
       <small className="confirm-foot">确认之前不会读取或下载 PDF</small>
     </section></div>}
 
