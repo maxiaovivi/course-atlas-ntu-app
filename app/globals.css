@@ -74,7 +74,7 @@ h1 { margin: 11px 0 8px; font-family: Georgia, "Songti SC", serif; font-size: cl
 .file-list { display: block; margin: 16px 4px 4px; overflow: hidden; border: 1px solid rgba(43, 144, 171, .13); border-radius: 13px; background: rgba(252,255,255,.7); }
 .file-columns { min-height: 38px; padding: 0 15px 0 52px; display: grid; grid-template-columns: minmax(0, 1fr) 140px 90px 90px 24px; align-items: center; gap: 14px; border-bottom: 1px solid rgba(43, 144, 171, .12); color: #83a7b0; font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
 .file-columns i { display: block; }
-.file-card { width: 100%; min-width: 0; min-height: 58px; padding: 8px 15px; display: grid; grid-template-columns: 28px minmax(0, 1fr) 140px 90px 90px 24px; align-items: center; gap: 14px; text-align: left; border: 0; border-bottom: 1px solid rgba(43, 144, 171, .1); border-radius: 0; color: #174758; background: transparent; cursor: pointer; opacity: 0; animation: file-in .28s ease forwards; animation-delay: var(--delay, 0ms); transition: background .18s ease; }
+.file-card { width: 100%; min-width: 0; min-height: 58px; padding: 8px 15px; display: grid; grid-template-columns: 28px minmax(0, 1fr) 140px 90px 90px 24px; align-items: center; gap: 14px; text-align: left; border: 0; border-bottom: 1px solid rgba(43, 144, 171, .1); border-radius: 0; color: #174758; background: transparent; cursor: pointer; transition: background .18s ease; }
 .file-card:last-of-type { border-bottom: 0; }
 .file-card:hover { background: rgba(45, 178, 208, .065); }
 .file-icon { width: 28px; height: 32px; display: grid; place-items: center; border: 1px solid rgba(34, 164, 199, .14); border-radius: 8px; color: #22a2c7; background: linear-gradient(145deg, #edfbfd, #d9f5f8); }
@@ -168,7 +168,6 @@ body > main > footer small { font-size: 7px; letter-spacing: .16em; }
 @keyframes float-sea { to { transform: translate3d(-60px, 45px, 0) scale(1.08); } }
 @keyframes water-shift { to { transform: rotate(-4deg) translate(-45px, 35px); opacity: .28; } }
 @keyframes jelly { 50% { transform: translateY(-7px) rotate(1deg); border-radius: 53% 47% 45% 55% / 45% 54% 46% 55%; } }
-@keyframes file-in { to { opacity: 1; } }
 @keyframes shimmer { to { background-position: -300% 0; } }
 @keyframes fade { from { opacity: 0; } }
 @keyframes modal-up { from { opacity: 0; transform: translateY(12px) scale(.99); } }
