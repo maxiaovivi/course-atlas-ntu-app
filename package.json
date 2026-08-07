@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vinext dev",
-    "build": "vinext build && node scripts/prepare-sites.mjs",
+    "build": "vinext build --prerender-all && node scripts/prepare-sites.mjs",
     "start": "next start",
     "lint": "next lint"
   },
