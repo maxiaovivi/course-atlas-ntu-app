@@ -37,6 +37,9 @@ function FileIcon() {
 function ArrowIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>;
 }
+function DownloadIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M5 19h14" /></svg>;
+}
 function ShieldIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.8 2.8 8.1 7 10 4.2-1.9 7-5.2 7-10V6z" /><path d="m9 12 2 2 4-5" /></svg>;
 }
@@ -116,6 +119,7 @@ export default function Home() {
   const [shelf, setShelf] = useState("All");
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState<Material | null>(null);
+  const [pendingAction, setPendingAction] = useState<"read" | "download">("read");
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState("");
   const [reader, setReader] = useState<Material | null>(null);
@@ -170,7 +174,7 @@ export default function Home() {
 
   const chooseCourse = (code: string) => { setCourseCode(code); setUploadCourse(code); setShelf("All"); };
 
-  const confirmAndOpen = async () => {
+  const confirmAndProceed = async () => {
     if (!pending) return;
     if (!pending.readable) { window.location.href = "/signin-with-chatgpt"; return; }
     setConfirming(true);
@@ -179,12 +183,22 @@ export default function Home() {
       const response = await fetch(`/api/materials/${encodeURIComponent(pending.id)}/confirm`, { method: "POST" });
       const data = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(data.error || "确认失败");
-      setReaderUrl(`/api/materials/${encodeURIComponent(pending.id)}?v=${encodeURIComponent(pending.sha256.slice(0, 12))}`);
-      setReader(pending);
+      const materialUrl = `/api/materials/${encodeURIComponent(pending.id)}?v=${encodeURIComponent(pending.sha256.slice(0, 12))}`;
+      if (pendingAction === "download") {
+        const link = document.createElement("a");
+        link.href = `${materialUrl}&download=1`;
+        link.download = pending.title;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } else {
+        setReaderUrl(materialUrl);
+        setReader(pending);
+        setPage(1);
+        setPageCount(1);
+        setZoom(100);
+      }
       setPending(null);
-      setPage(1);
-      setPageCount(1);
-      setZoom(100);
     } catch (error) {
       setConfirmError(error instanceof Error ? error.message : "确认失败");
     } finally { setConfirming(false); }
@@ -244,29 +258,33 @@ export default function Home() {
       </div>
 
       <div className="file-list">
-        {loaded && visible.length > 0 && <div className="file-columns"><span>文件</span><span>类型</span><span>大小</span><span>访问</span><i /></div>}
+        {loaded && visible.length > 0 && <div className="file-columns"><span>文件</span><span>类型</span><span>大小</span><span>访问</span><span>操作</span></div>}
         {!loaded && [1,2,3,4].map((item) => <div className="file-card skeleton" key={item} />)}
-        {loaded && visible.map((material, index) => <button className="file-card" onClick={() => { setConfirmError(""); setPending(material); }} key={material.id} style={{ "--delay": `${Math.min(index, 8) * 35}ms` } as React.CSSProperties}>
+        {loaded && visible.map((material, index) => <div className="file-card" key={material.id} style={{ "--delay": `${Math.min(index, 8) * 35}ms` } as React.CSSProperties}>
           <span className="file-icon"><FileIcon /></span>
           <span className="file-copy"><strong>{material.title}</strong><small>{material.course}</small></span>
           <span className="file-type">{material.shelf}</span>
           <span className="file-size">{formatBytes(material.size)}</span>
           <span className={`access-pill ${material.visibility}`}>{material.visibility === "public" ? "PUBLIC" : material.readable ? "PRIVATE" : "OWNER"}</span>
-          <span className="file-arrow"><ArrowIcon /></span>
-        </button>)}
+          <span className="file-actions">
+            <button onClick={() => { setConfirmError(""); setPendingAction("read"); setPending(material); }}>阅读</button>
+            <button className="download" aria-label={`下载 ${material.title}`} title="下载 PDF" onClick={() => { setConfirmError(""); setPendingAction("download"); setPending(material); }}><DownloadIcon /></button>
+          </span>
+        </div>)}
         {loaded && visible.length === 0 && <div className="empty"><span>∿</span><strong>这里还是一片浅海</strong><small>换个分类，或者直接上传一份 PDF。</small></div>}
       </div>
     </section>
 
-    <footer className="shell"><span>知屿 · Course Atlas</span><small>JELLY SEA EDITION · 2026</small></footer>
+    <footer className="shell"><span>知屿 · Course Atlas</span><p>课程资料版权归南洋理工大学（NTU）所有，仅供 NTU 学生学习交流。</p><small>NON-COMMERCIAL STUDY USE · 2026</small></footer>
 
     {pending && <div className="overlay" onMouseDown={() => setPending(null)}><section className="confirm-card" onMouseDown={(event) => event.stopPropagation()}>
       <button className="close" onClick={() => setPending(null)}>×</button><span className="confirm-icon"><ShieldIcon /></span><small>加载前确认</small><h2>{pending.title}</h2>
       <div className="confirm-meta"><span>{pending.course}</span><span>{pending.shelf}</span><span>{formatBytes(pending.size)}</span></div>
       <p>{pending.visibility === "public" ? "这份 PDF 已被上传者标记为可公开分享。确认后，阅读器才会开始请求文件内容。" : pending.readable ? "这是受保护的课程资料。确认仅用于个人学习，并遵守课程材料的使用范围后再加载。" : "这份 NTU 课程资料没有公开分发许可。公共访客可以浏览目录，但只有资料库所有者登录后才能读取。"}</p>
+      <div className="copyright-note"><strong>版权与使用范围</strong><span>课程资料版权归南洋理工大学（NTU）所有，仅供 NTU 学生学习交流。禁止商业使用或再次传播。</span></div>
       {confirmError && <div className="inline-error">{confirmError}</div>}
-      <button className="primary-action" disabled={confirming} onClick={confirmAndOpen}>{confirming ? "正在确认…" : pending.readable ? "确认并加载 PDF" : "所有者登录后读取"}<ArrowIcon /></button>
-      <small className="confirm-foot">PDF 不会在确认之前预加载</small>
+      <button className="primary-action" disabled={confirming} onClick={confirmAndProceed}>{confirming ? "正在确认…" : pending.readable ? pendingAction === "download" ? "确认并下载 PDF" : "确认并阅读 PDF" : "所有者登录后读取"}{pendingAction === "download" ? <DownloadIcon /> : <ArrowIcon />}</button>
+      <small className="confirm-foot">确认之前不会读取或下载 PDF</small>
     </section></div>}
 
     {uploadOpen && <div className="overlay" onMouseDown={() => setUploadOpen(false)}><section className="upload-card" onMouseDown={(event) => event.stopPropagation()}>
@@ -284,7 +302,7 @@ export default function Home() {
     </section></div>}
 
     {reader && <div className="reader-overlay"><section className="reader-shell">
-      <header><div><span className="reader-file-icon"><FileIcon /></span><span><small>{reader.course} · {reader.shelf}</small><strong>{reader.title}</strong></span></div><div className="reader-tools"><button onClick={() => setZoom((value) => Math.max(60, value - 10))}>−</button><span>{zoom}%</span><button onClick={() => setZoom((value) => Math.min(180, value + 10))}>＋</button><button className="reader-close" onClick={() => setReader(null)}>×</button></div></header>
+      <header><div><span className="reader-file-icon"><FileIcon /></span><span><small>{reader.course} · {reader.shelf}</small><strong>{reader.title}</strong></span></div><div className="reader-tools"><button onClick={() => setZoom((value) => Math.max(60, value - 10))}>−</button><span>{zoom}%</span><button onClick={() => setZoom((value) => Math.min(180, value + 10))}>＋</button><a className="reader-download" href={`${readerUrl}&download=1`} download={reader.title} title="下载 PDF" aria-label={`下载 ${reader.title}`}><DownloadIcon /></a><button className="reader-close" onClick={() => setReader(null)}>×</button></div></header>
       <div className="reader-stage"><PdfCanvas url={readerUrl} page={page} zoom={zoom} onPageCount={setPageCount} /></div>
       <footer><button onClick={() => setPage((value) => Math.max(1, value - 1))}>←</button><span>PAGE <strong>{page}</strong> / {pageCount}</span><button onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>→</button></footer>
     </section></div>}

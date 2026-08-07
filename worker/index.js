@@ -130,6 +130,7 @@ async function serveMaterial(request, env, id) {
   if (!object) return new Response("Stored PDF not found", { status: 404 });
 
   const length = range ? range.end - range.start + 1 : metadata.size;
+  const download = new URL(request.url).searchParams.get("download") === "1";
   const asciiName = `${material.course}-${material.id.slice(-8)}.pdf`;
   const encodedTitle = encodeURIComponent(material.title).replace(/'/g, "%27");
   const headers = new Headers({
@@ -137,7 +138,7 @@ async function serveMaterial(request, env, id) {
     "Content-Length": String(length),
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, max-age=3600",
-    "Content-Disposition": `inline; filename="${asciiName}"; filename*=UTF-8''${encodedTitle}`,
+    "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${asciiName}"; filename*=UTF-8''${encodedTitle}`,
     "X-Course-Atlas-Storage": "r2",
     "X-Content-Type-Options": "nosniff",
   });
