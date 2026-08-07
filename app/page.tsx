@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Course = {
   code: string;
@@ -22,8 +22,8 @@ const courses: Course[] = [
     title: "Robotics & Intelligent Sensors",
     shortTitle: "Robotics",
     description: "从运动学、控制与移动机器人，到视觉、位姿估计和多传感器融合。",
-    accent: "#ff8a5c",
-    accentSoft: "rgba(255, 138, 92, .18)",
+    accent: "#58d4ee",
+    accentSoft: "rgba(88, 212, 238, .16)",
     files: 135,
     progress: 46,
     next: "Wednesday · 18:30",
@@ -40,8 +40,8 @@ const courses: Course[] = [
     title: "Analytic & Ensemble Machine Learning",
     shortTitle: "Ensemble ML",
     description: "覆盖统计学习、集成方法、模型评估，以及从理论到 notebook 的完整路径。",
-    accent: "#75d8bd",
-    accentSoft: "rgba(117, 216, 189, .17)",
+    accent: "#55e1c5",
+    accentSoft: "rgba(85, 225, 197, .15)",
     files: 51,
     progress: 29,
     next: "13 lecture sets",
@@ -58,8 +58,8 @@ const courses: Course[] = [
     title: "Genetic Algorithms & Machine Learning",
     shortTitle: "GA & ML",
     description: "遗传算法、贝叶斯决策、LDA、SVM、分类树、聚类与系统化考试训练。",
-    accent: "#9a8cff",
-    accentSoft: "rgba(154, 140, 255, .18)",
+    accent: "#69aef8",
+    accentSoft: "rgba(105, 174, 248, .16)",
     files: 688,
     progress: 63,
     next: "Highest exam coverage",
@@ -76,8 +76,8 @@ const courses: Course[] = [
     title: "Pattern Recognition & Deep Learning",
     shortTitle: "Deep Learning",
     description: "从概率模型到神经网络与 CNN，用两阶段复习路线连接 Quiz 和期末考试。",
-    accent: "#62b7ff",
-    accentSoft: "rgba(98, 183, 255, .18)",
+    accent: "#7fe5ff",
+    accentSoft: "rgba(127, 229, 255, .15)",
     files: 80,
     progress: 38,
     next: "Quiz 1 → Quiz 2",
@@ -105,10 +105,32 @@ function SparkIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.7 5.3 2.7 7.3 8 8-5.3.7-7.3 2.7-8 8-.7-5.3-2.7-7.3-8-8 5.3-.7 7.3-2.7 8-8Z" /></svg>;
 }
 
+function FileIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v5h5M10 13h5m-5 4h5" /></svg>;
+}
+
+function ReaderIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H11v17H7.5A3.5 3.5 0 0 0 4 22zm16 0A3.5 3.5 0 0 0 16.5 2H13v17h3.5A3.5 3.5 0 0 1 20 22z" /></svg>;
+}
+
 export default function Home() {
   const [query, setQuery] = useState("");
   const [activeCourse, setActiveCourse] = useState<Course | null>(null);
+  const [reader, setReader] = useState<{ course: Course; shelf: Course["shelves"][number] } | null>(null);
   const [view, setView] = useState<"grid" | "focus">("grid");
+  const [page, setPage] = useState(1);
+  const [zoom, setZoom] = useState(100);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (reader) setReader(null);
+        else setActiveCourse(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [reader]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -125,6 +147,7 @@ export default function Home() {
     <main>
       <div className="aurora aurora-one" />
       <div className="aurora aurora-two" />
+      <div className="caustics" aria-hidden="true" />
 
       <header className="topbar shell">
         <a className="brand" href="#top" aria-label="Course Atlas home">
@@ -136,9 +159,9 @@ export default function Home() {
           <a href="#roadmap">Roadmap</a>
           <a href="#about">About</a>
         </nav>
-        <div className="profile" title="Private circle">
+        <div className="profile" title="Shared course library">
           <span className="status-dot" />
-          <span className="profile-copy"><strong>Study circle</strong><small>Private · 1 member</small></span>
+          <span className="profile-copy"><strong>Study circle</strong><small>Shared library</small></span>
           <span className="avatar">Y</span>
         </div>
       </header>
@@ -147,8 +170,8 @@ export default function Home() {
         <div className="eyebrow"><span>AY 2026–27</span><i />SEMESTER 1</div>
         <div className="hero-grid">
           <div>
-            <h1>把复杂的知识，<br /><em>收进一座岛。</em></h1>
-            <p>你的私人课程资料馆。让讲义、测验、往年试卷与学习路径各归其位，也让同行的人随时找到方向。</p>
+            <h1>让知识沉入深海，<br /><em>再被温柔照亮。</em></h1>
+            <p>一座为课程资料而建的蓝色岛屿。讲义、测验、往年试卷与学习路径各归其位，让你和同行的人随时找到方向。</p>
           </div>
           <div className="orbit-card" aria-label="Library overview">
             <div className="orbit orbit-a" />
@@ -195,17 +218,17 @@ export default function Home() {
         <div className="roadmap-copy">
           <span className="section-index">02</span>
           <h2>This week’s orbit</h2>
-          <p>首版先建立资料地图；下一步会接入已审核的 PDF 预览、下载和全文搜索。</p>
+          <p>资料地图与沉浸式阅读器已经就位；审核后的 PDF 将从受控存储按需流式加载。</p>
         </div>
         <div className="timeline">
           <div className="timeline-line" />
-          <div className="timeline-item active"><span>01</span><div><small>NOW</small><strong>资料地图</strong><p>课程结构与分类已就位</p></div></div>
-          <div className="timeline-item"><span>02</span><div><small>NEXT</small><strong>精选资料</strong><p>审核并接入讲义与试卷</p></div></div>
+          <div className="timeline-item active"><span>01</span><div><small>NOW</small><strong>资料地图</strong><p>课程结构与阅读界面已就位</p></div></div>
+          <div className="timeline-item"><span>02</span><div><small>NEXT</small><strong>PDF 入库</strong><p>审核权限后连接文件存储</p></div></div>
           <div className="timeline-item"><span>03</span><div><small>LATER</small><strong>全文搜索</strong><p>跨课程定位知识点</p></div></div>
         </div>
       </section>
 
-      <footer className="shell" id="about"><span>知屿 · Course Atlas</span><p>Built for a small circle of curious minds.</p><small>PRIVATE LIBRARY · 2026</small></footer>
+      <footer className="shell" id="about"><span>知屿 · Course Atlas</span><p>Built for a small circle of curious minds.</p><small>SHARED LIBRARY · 2026</small></footer>
 
       {activeCourse && (
         <div className="modal-backdrop" onMouseDown={() => setActiveCourse(null)}>
@@ -216,9 +239,53 @@ export default function Home() {
             <p>{activeCourse.description}</p>
             <div className="modal-stat"><span><strong>{activeCourse.files}</strong><small>indexed items</small></span><span><strong>{activeCourse.progress}%</strong><small>mapped</small></span><span><strong>{activeCourse.next}</strong><small>study signal</small></span></div>
             <div className="shelf-grid">
-              {activeCourse.shelves.map((shelf) => <button key={shelf.label}><span>{shelf.count}</span><strong>{shelf.label}</strong><small>{shelf.note}</small><ArrowIcon /></button>)}
+              {activeCourse.shelves.map((shelf) => <button key={shelf.label} onClick={() => { setReader({ course: activeCourse, shelf }); setPage(1); setZoom(100); }}><span>{shelf.count}</span><span className="shelf-copy"><strong>{shelf.label}</strong><small>{shelf.note}</small></span><ArrowIcon /></button>)}
             </div>
-            <div className="notice"><SparkIcon /><span><strong>Front-end preview</strong>资料下载将在审核分享范围后接入。</span></div>
+            <div className="notice"><SparkIcon /><span><strong>Reader preview ready</strong>点击任一资料分类，预览 PDF 阅读体验与后端接入状态。</span></div>
+          </section>
+        </div>
+      )}
+
+      {reader && (
+        <div className="reader-backdrop" onMouseDown={() => setReader(null)}>
+          <section className="reader" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="reader-topbar">
+              <div className="reader-title"><span className="reader-file"><FileIcon /></span><span><small>{reader.course.code} · {reader.shelf.label}</small><strong>{reader.course.shortTitle} — Sample lecture.pdf</strong></span></div>
+              <div className="reader-tools">
+                <button onClick={() => setZoom((value) => Math.max(60, value - 10))} aria-label="Zoom out">−</button>
+                <span>{zoom}%</span>
+                <button onClick={() => setZoom((value) => Math.min(180, value + 10))} aria-label="Zoom in">＋</button>
+                <i />
+                <button className="reader-close" onClick={() => setReader(null)} aria-label="Close reader">×</button>
+              </div>
+            </header>
+            <div className="reader-layout">
+              <aside className="reader-sidebar">
+                <div className="reader-tabs"><button className="selected">Pages</button><button>Outline</button></div>
+                {[1, 2, 3].map((item) => <button className={`thumbnail ${page === item ? "active" : ""}`} onClick={() => setPage(item)} key={item}><span><i /><i /><i /></span><small>{item}</small></button>)}
+              </aside>
+              <div className="reader-stage">
+                <div className="depth-indicator"><span className="status-dot" /> STREAM READY</div>
+                <article className="pdf-page" style={{ transform: `scale(${zoom / 100})` }}>
+                  <header><span>{reader.course.code}</span><small>LECTURE NOTES · {String(page).padStart(2, "0")}</small></header>
+                  <div className="pdf-kicker">COURSE ATLAS / READER PREVIEW</div>
+                  <h2>{reader.course.title}</h2>
+                  <p>{reader.course.description}</p>
+                  <div className="pdf-figure"><span className="figure-orbit" /><span className="figure-core">{page}</span><i /><i /></div>
+                  <div className="pdf-copy"><span /><span /><span /><span /></div>
+                  <footer><span>知屿 · Course Atlas</span><strong>{page}</strong></footer>
+                </article>
+              </div>
+              <aside className="reader-info">
+                <span className="reader-info-icon"><ReaderIcon /></span>
+                <small>DOCUMENT SOURCE</small>
+                <h3>等待资料接入</h3>
+                <p>阅读器界面已经可用。正式文件会在权限确认后，从后端返回短时有效的 PDF 地址。</p>
+                <dl><div><dt>Transport</dt><dd>Range requests</dd></div><div><dt>Render</dt><dd>Visible pages only</dd></div><div><dt>Cache</dt><dd>Private + immutable</dd></div></dl>
+                <div className="reader-note"><span className="status-dot" /><span><strong>Privacy first</strong><small>本地 PDF 尚未公开上传</small></span></div>
+              </aside>
+            </div>
+            <div className="reader-bottombar"><button onClick={() => setPage((value) => Math.max(1, value - 1))}>←</button><span>PAGE <strong>{page}</strong> / 3</span><button onClick={() => setPage((value) => Math.min(3, value + 1))}>→</button></div>
           </section>
         </div>
       )}
