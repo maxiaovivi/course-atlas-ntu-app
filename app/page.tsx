@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Course = {
   code: string;
@@ -113,6 +113,97 @@ function ReaderIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H11v17H7.5A3.5 3.5 0 0 0 4 22zm16 0A3.5 3.5 0 0 0 16.5 2H13v17h3.5A3.5 3.5 0 0 1 20 22z" /></svg>;
 }
 
+function PdfCanvas({ url, page, zoom, onPageCount }: { url: string; page: number; zoom: number; onPageCount: (count: number) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const documentRef = useRef<import("pdfjs-dist").PDFDocumentProxy | null>(null);
+  const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
+  const [documentVersion, setDocumentVersion] = useState(0);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  useEffect(() => {
+    let disposed = false;
+    let loadingTask: import("pdfjs-dist").PDFDocumentLoadingTask | null = null;
+
+    const load = async () => {
+      try {
+        setStatus("loading");
+        const pdfjs = await import("pdfjs-dist");
+        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+        loadingTask = pdfjs.getDocument({ url, rangeChunkSize: 65536 });
+        const document = await loadingTask.promise;
+        if (disposed) return;
+        documentRef.current = document;
+        onPageCount(document.numPages);
+        setDocumentVersion((value) => value + 1);
+      } catch (error) {
+        if (!disposed) {
+          console.error("Unable to load PDF", error);
+          setStatus("error");
+        }
+      }
+    };
+
+    load();
+    return () => {
+      disposed = true;
+      renderTaskRef.current?.cancel();
+      loadingTask?.destroy();
+      documentRef.current = null;
+    };
+  }, [url, onPageCount]);
+
+  useEffect(() => {
+    const document = documentRef.current;
+    const canvas = canvasRef.current;
+    if (!document || !canvas) return;
+    let disposed = false;
+
+    const render = async () => {
+      try {
+        renderTaskRef.current?.cancel();
+        const pdfPage = await document.getPage(Math.min(page, document.numPages));
+        if (disposed) return;
+        const viewport = pdfPage.getViewport({ scale: 1.2 * (zoom / 100) });
+        const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context) throw new Error("Canvas is unavailable");
+        canvas.width = Math.floor(viewport.width * outputScale);
+        canvas.height = Math.floor(viewport.height * outputScale);
+        canvas.style.width = `${Math.floor(viewport.width)}px`;
+        canvas.style.height = `${Math.floor(viewport.height)}px`;
+        const renderTask = pdfPage.render({
+          canvas,
+          canvasContext: context,
+          viewport,
+          transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
+        });
+        renderTaskRef.current = renderTask;
+        await renderTask.promise;
+        if (!disposed) setStatus("ready");
+      } catch (error) {
+        if (!disposed && (error as { name?: string }).name !== "RenderingCancelledException") {
+          console.error("Unable to render PDF page", error);
+          setStatus("error");
+        }
+      }
+    };
+
+    render();
+    return () => {
+      disposed = true;
+      renderTaskRef.current?.cancel();
+    };
+  }, [documentVersion, page, zoom]);
+
+  return (
+    <div className={`pdf-canvas-wrap ${status}`}>
+      {status === "loading" && <div className="pdf-loading"><span /><strong>正在从存储空间读取 PDF</strong><small>Preparing byte ranges…</small></div>}
+      {status === "error" && <div className="pdf-loading error"><strong>PDF 暂时无法读取</strong><small>请检查 Sites 文件存储绑定。</small></div>}
+      <canvas ref={canvasRef} aria-label={`PDF page ${page}`} />
+    </div>
+  );
+}
+
 export default function Home() {
   const [query, setQuery] = useState("");
   const [activeCourse, setActiveCourse] = useState<Course | null>(null);
@@ -120,6 +211,8 @@ export default function Home() {
   const [view, setView] = useState<"grid" | "focus">("grid");
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(100);
+  const [pageCount, setPageCount] = useState(3);
+  const [storageAvailable, setStorageAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -130,6 +223,14 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [reader]);
+
+  useEffect(() => {
+    if (!reader) return;
+    fetch("/api/storage/status", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { available?: boolean }) => setStorageAvailable(Boolean(data.available)))
+      .catch(() => setStorageAvailable(false));
   }, [reader]);
 
   const filtered = useMemo(() => {
@@ -265,27 +366,19 @@ export default function Home() {
                 {[1, 2, 3].map((item) => <button className={`thumbnail ${page === item ? "active" : ""}`} onClick={() => setPage(item)} key={item}><span><i /><i /><i /></span><small>{item}</small></button>)}
               </aside>
               <div className="reader-stage">
-                <div className="depth-indicator"><span className="status-dot" /> STREAM READY</div>
-                <article className="pdf-page" style={{ transform: `scale(${zoom / 100})` }}>
-                  <header><span>{reader.course.code}</span><small>LECTURE NOTES · {String(page).padStart(2, "0")}</small></header>
-                  <div className="pdf-kicker">COURSE ATLAS / READER PREVIEW</div>
-                  <h2>{reader.course.title}</h2>
-                  <p>{reader.course.description}</p>
-                  <div className="pdf-figure"><span className="figure-orbit" /><span className="figure-core">{page}</span><i /><i /></div>
-                  <div className="pdf-copy"><span /><span /><span /><span /></div>
-                  <footer><span>知屿 · Course Atlas</span><strong>{page}</strong></footer>
-                </article>
+                <div className="depth-indicator"><span className="status-dot" /> {storageAvailable === null ? "CHECKING STORAGE" : storageAvailable ? "R2 CONNECTED" : "WORKER FALLBACK"}</div>
+                <PdfCanvas url="/api/demo.pdf" page={page} zoom={zoom} onPageCount={setPageCount} />
               </div>
               <aside className="reader-info">
                 <span className="reader-info-icon"><ReaderIcon /></span>
                 <small>DOCUMENT SOURCE</small>
-                <h3>等待资料接入</h3>
-                <p>阅读器界面已经可用。正式文件会在权限确认后，从后端返回短时有效的 PDF 地址。</p>
+                <h3>{storageAvailable ? "R2 已连接" : "存储连接测试"}</h3>
+                <p>{storageAvailable ? "示例 PDF 正在从 Sites 文件存储按字节分段读取。" : "阅读器会先使用安全的示例文件；Sites 存储绑定状态正在确认。"}</p>
                 <dl><div><dt>Transport</dt><dd>Range requests</dd></div><div><dt>Render</dt><dd>Visible pages only</dd></div><div><dt>Cache</dt><dd>Private + immutable</dd></div></dl>
-                <div className="reader-note"><span className="status-dot" /><span><strong>Privacy first</strong><small>本地 PDF 尚未公开上传</small></span></div>
+                <div className="reader-note"><span className="status-dot" /><span><strong>{storageAvailable ? "Storage test live" : "Privacy first"}</strong><small>仅写入生成的示例 PDF；本地课程文件尚未上传</small></span></div>
               </aside>
             </div>
-            <div className="reader-bottombar"><button onClick={() => setPage((value) => Math.max(1, value - 1))}>←</button><span>PAGE <strong>{page}</strong> / 3</span><button onClick={() => setPage((value) => Math.min(3, value + 1))}>→</button></div>
+            <div className="reader-bottombar"><button onClick={() => setPage((value) => Math.max(1, value - 1))}>←</button><span>PAGE <strong>{page}</strong> / {pageCount}</span><button onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>→</button></div>
           </section>
         </div>
       )}

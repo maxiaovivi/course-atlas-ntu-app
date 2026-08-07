@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "next": "16.3.0",
+    "pdfjs-dist": "^6.2.108",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
@@ -22,7 +23,7 @@
     "@vitejs/plugin-rsc": "0.5.27",
     "react-server-dom-webpack": "19.2.8",
     "typescript": "5.9.2",
-    "vite": "8.2.1",
-    "vinext": "1.0.0-beta.4"
+    "vinext": "1.0.0-beta.4",
+    "vite": "8.2.1"
   }
 }

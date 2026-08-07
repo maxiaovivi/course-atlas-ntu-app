@@ -7,6 +7,7 @@ if (!existsSync("dist/server/prerendered-routes/index.html")) {
 }
 
 copyFileSync("worker/index.js", "dist/server/index.js");
+copyFileSync("node_modules/pdfjs-dist/build/pdf.worker.min.mjs", "dist/client/pdf.worker.min.mjs");
 copyFileSync("dist/server/prerendered-routes/index.html", "dist/client/index.html");
 copyFileSync("dist/server/prerendered-routes/404.html", "dist/client/404.html");
 copyFileSync("dist/server/prerendered-routes/index.rsc", "dist/client/index.rsc");
