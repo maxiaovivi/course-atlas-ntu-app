@@ -16,6 +16,17 @@ type Course = {
   shelves: { label: string; count: number; note: string }[];
 };
 
+type Material = {
+  id: string;
+  course: string;
+  shelf: string;
+  title: string;
+  size: number;
+  source: string;
+  sha256: string;
+  updatedAt: string;
+};
+
 const courses: Course[] = [
   {
     code: "EE6221",
@@ -24,15 +35,15 @@ const courses: Course[] = [
     description: "从运动学、控制与移动机器人，到视觉、位姿估计和多传感器融合。",
     accent: "#58d4ee",
     accentSoft: "rgba(88, 212, 238, .16)",
-    files: 135,
+    files: 18,
     progress: 46,
     next: "Wednesday · 18:30",
     topics: ["Kinematics", "Robot Control", "Vision", "Kalman Filter"],
     shelves: [
-      { label: "Current", count: 1, note: "AY2026–27 S1" },
-      { label: "Lectures", count: 14, note: "Historical core" },
-      { label: "Quiz", count: 3, note: "Recall & analysis" },
-      { label: "Exams", count: 11, note: "Official papers" },
+      { label: "Lectures", count: 10, note: "Kinematics → vision" },
+      { label: "Assignments", count: 2, note: "Official briefs" },
+      { label: "Quiz", count: 1, note: "Review material" },
+      { label: "Exams", count: 5, note: "Official papers" },
     ],
   },
   {
@@ -42,15 +53,15 @@ const courses: Course[] = [
     description: "覆盖统计学习、集成方法、模型评估，以及从理论到 notebook 的完整路径。",
     accent: "#55e1c5",
     accentSoft: "rgba(85, 225, 197, .15)",
-    files: 51,
+    files: 16,
     progress: 29,
     next: "13 lecture sets",
     topics: ["Analytics", "Ensembles", "Evaluation", "Notebooks"],
     shelves: [
-      { label: "Current", count: 1, note: "Course status" },
-      { label: "Lectures", count: 18, note: "AY2025–26 S2" },
-      { label: "Notebooks", count: 6, note: "Practice code" },
-      { label: "Exams", count: 5, note: "Past papers" },
+      { label: "Lectures", count: 14, note: "AY2024–25 S2" },
+      { label: "Assignments", count: 0, note: "No PDF indexed" },
+      { label: "Study aids", count: 0, note: "No PDF indexed" },
+      { label: "Exams", count: 2, note: "Official papers" },
     ],
   },
   {
@@ -60,15 +71,15 @@ const courses: Course[] = [
     description: "遗传算法、贝叶斯决策、LDA、SVM、分类树、聚类与系统化考试训练。",
     accent: "#69aef8",
     accentSoft: "rgba(105, 174, 248, .16)",
-    files: 688,
+    files: 36,
     progress: 63,
     next: "Highest exam coverage",
     topics: ["Genetic Algorithms", "SVM", "LDA", "Clustering"],
     shelves: [
-      { label: "Current", count: 1, note: "Course status" },
-      { label: "Study archive", count: 133, note: "Curated history" },
-      { label: "Quiz", count: 4, note: "Practice set" },
-      { label: "Exams", count: 7, note: "EE6407 + EE6227" },
+      { label: "Lectures", count: 26, note: "Curated sequence" },
+      { label: "Assignments", count: 3, note: "Official briefs" },
+      { label: "Quiz", count: 1, note: "Historical paper" },
+      { label: "Exams", count: 6, note: "EE6407 + EE6227" },
     ],
   },
   {
@@ -78,15 +89,14 @@ const courses: Course[] = [
     description: "从概率模型到神经网络与 CNN，用两阶段复习路线连接 Quiz 和期末考试。",
     accent: "#7fe5ff",
     accentSoft: "rgba(127, 229, 255, .15)",
-    files: 80,
+    files: 6,
     progress: 38,
     next: "Quiz 1 → Quiz 2",
     topics: ["Probability", "Pattern Recognition", "Neural Nets", "CNN"],
     shelves: [
-      { label: "Current", count: 1, note: "Course status" },
-      { label: "Study aids", count: 3, note: "Historical" },
-      { label: "Quiz", count: 4, note: "Two-stage prep" },
-      { label: "Exams", count: 7, note: "EE6497 + IE4497" },
+      { label: "Study aids", count: 1, note: "Formula sheet" },
+      { label: "Quiz", count: 2, note: "Two-stage prep" },
+      { label: "Exams", count: 3, note: "EE6497 + IE4497" },
     ],
   },
 ];
@@ -111,6 +121,11 @@ function FileIcon() {
 
 function ReaderIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H11v17H7.5A3.5 3.5 0 0 0 4 22zm16 0A3.5 3.5 0 0 0 16.5 2H13v17h3.5A3.5 3.5 0 0 1 20 22z" /></svg>;
+}
+
+function formatBytes(size: number) {
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  return `${Math.max(1, Math.round(size / 1024))} KB`;
 }
 
 function PdfCanvas({ url, page, zoom, onPageCount }: { url: string; page: number; zoom: number; onPageCount: (count: number) => void }) {
@@ -207,12 +222,34 @@ function PdfCanvas({ url, page, zoom, onPageCount }: { url: string; page: number
 export default function Home() {
   const [query, setQuery] = useState("");
   const [activeCourse, setActiveCourse] = useState<Course | null>(null);
-  const [reader, setReader] = useState<{ course: Course; shelf: Course["shelves"][number] } | null>(null);
+  const [reader, setReader] = useState<{ course: Course; shelf: Course["shelves"][number]; materials: Material[] } | null>(null);
+  const [selectedMaterialId, setSelectedMaterialId] = useState<string | null>(null);
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [catalogError, setCatalogError] = useState(false);
   const [view, setView] = useState<"grid" | "focus">("grid");
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(100);
   const [pageCount, setPageCount] = useState(3);
   const [storageAvailable, setStorageAvailable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch("/api/library", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Library request failed: ${response.status}`);
+        return response.json() as Promise<{ materials?: Material[]; storageAvailable?: boolean }>;
+      })
+      .then((data) => {
+        setMaterials(Array.isArray(data.materials) ? data.materials : []);
+        setStorageAvailable(Boolean(data.storageAvailable));
+        setCatalogLoaded(true);
+      })
+      .catch(() => {
+        setCatalogError(true);
+        setStorageAvailable(false);
+        setCatalogLoaded(true);
+      });
+  }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -225,13 +262,21 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKey);
   }, [reader]);
 
-  useEffect(() => {
-    if (!reader) return;
-    fetch("/api/storage/status", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((data: { available?: boolean }) => setStorageAvailable(Boolean(data.available)))
-      .catch(() => setStorageAvailable(false));
-  }, [reader]);
+  const activeMaterial = reader
+    ? reader.materials.find((material) => material.id === selectedMaterialId) ?? reader.materials[0] ?? null
+    : null;
+
+  const materialsFor = (courseCode: string, shelfLabel: string) =>
+    materials.filter((material) => material.course === courseCode && material.shelf === shelfLabel);
+
+  const openShelf = (course: Course, shelf: Course["shelves"][number]) => {
+    const shelfMaterials = materialsFor(course.code, shelf.label);
+    setReader({ course, shelf, materials: shelfMaterials });
+    setSelectedMaterialId(shelfMaterials[0]?.id ?? null);
+    setPage(1);
+    setPageCount(1);
+    setZoom(100);
+  };
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -281,7 +326,7 @@ export default function Home() {
             <span className="satellite satellite-a" />
             <span className="satellite satellite-b" />
             <span className="satellite satellite-c" />
-            <div className="orbit-note"><strong>954</strong><span>indexed items</span></div>
+            <div className="orbit-note"><strong>{catalogLoaded ? materials.length : "···"}</strong><span>protected PDFs</span></div>
           </div>
         </div>
       </section>
@@ -301,7 +346,7 @@ export default function Home() {
         <div className={`course-grid ${view === "focus" ? "focus-view" : ""}`}>
           {filtered.map((course, index) => (
             <article className="course-card" key={course.code} style={{ "--accent": course.accent, "--accent-soft": course.accentSoft } as React.CSSProperties}>
-              <div className="card-top"><span className="course-number">0{index + 1}</span><span className="file-count">{course.files} ITEMS</span></div>
+              <div className="card-top"><span className="course-number">0{index + 1}</span><span className="file-count">{catalogLoaded ? materials.filter((material) => material.course === course.code).length : course.files} PDF</span></div>
               <div className="course-symbol"><span /><i /></div>
               <div className="course-code">{course.code}</div>
               <h3>{course.shortTitle}</h3>
@@ -319,12 +364,12 @@ export default function Home() {
         <div className="roadmap-copy">
           <span className="section-index">02</span>
           <h2>This week’s orbit</h2>
-          <p>资料地图与沉浸式阅读器已经就位；审核后的 PDF 将从受控存储按需流式加载。</p>
+          <p>真实课程 PDF 已接入受控存储；阅读器只渲染当前页面，并按需读取文件字节范围。</p>
         </div>
         <div className="timeline">
           <div className="timeline-line" />
-          <div className="timeline-item active"><span>01</span><div><small>NOW</small><strong>资料地图</strong><p>课程结构与阅读界面已就位</p></div></div>
-          <div className="timeline-item"><span>02</span><div><small>NEXT</small><strong>PDF 入库</strong><p>审核权限后连接文件存储</p></div></div>
+          <div className="timeline-item active"><span>01</span><div><small>LIVE</small><strong>资料地图</strong><p>{materials.length || 76} 份课程 PDF 已整理</p></div></div>
+          <div className="timeline-item active"><span>02</span><div><small>LIVE</small><strong>PDF 阅读</strong><p>从私有对象存储分段加载</p></div></div>
           <div className="timeline-item"><span>03</span><div><small>LATER</small><strong>全文搜索</strong><p>跨课程定位知识点</p></div></div>
         </div>
       </section>
@@ -338,11 +383,14 @@ export default function Home() {
             <span className="modal-kicker">{activeCourse.code} · COURSE MAP</span>
             <h2>{activeCourse.title}</h2>
             <p>{activeCourse.description}</p>
-            <div className="modal-stat"><span><strong>{activeCourse.files}</strong><small>indexed items</small></span><span><strong>{activeCourse.progress}%</strong><small>mapped</small></span><span><strong>{activeCourse.next}</strong><small>study signal</small></span></div>
+            <div className="modal-stat"><span><strong>{catalogLoaded ? materials.filter((material) => material.course === activeCourse.code).length : activeCourse.files}</strong><small>protected PDFs</small></span><span><strong>{activeCourse.progress}%</strong><small>mapped</small></span><span><strong>{activeCourse.next}</strong><small>study signal</small></span></div>
             <div className="shelf-grid">
-              {activeCourse.shelves.map((shelf) => <button key={shelf.label} onClick={() => { setReader({ course: activeCourse, shelf }); setPage(1); setZoom(100); }}><span>{shelf.count}</span><span className="shelf-copy"><strong>{shelf.label}</strong><small>{shelf.note}</small></span><ArrowIcon /></button>)}
+              {activeCourse.shelves.map((shelf) => {
+                const count = catalogLoaded ? materialsFor(activeCourse.code, shelf.label).length : shelf.count;
+                return <button key={shelf.label} disabled={catalogLoaded && count === 0} onClick={() => openShelf(activeCourse, shelf)}><span>{count}</span><span className="shelf-copy"><strong>{shelf.label}</strong><small>{count ? shelf.note : "No PDF indexed"}</small></span><ArrowIcon /></button>;
+              })}
             </div>
-            <div className="notice"><SparkIcon /><span><strong>Reader preview ready</strong>点击任一资料分类，预览 PDF 阅读体验与后端接入状态。</span></div>
+            <div className={`notice ${catalogError ? "warning" : ""}`}><SparkIcon /><span><strong>{catalogError ? "目录暂时无法读取" : catalogLoaded ? "Protected vault connected" : "正在读取课程目录"}</strong>{catalogError ? "请刷新页面重试；本地 Vault 未受到影响。" : "点击任一非空分类，直接阅读 ntu_study 中筛选并上传的真实 PDF。"}</span></div>
           </section>
         </div>
       )}
@@ -351,7 +399,7 @@ export default function Home() {
         <div className="reader-backdrop" onMouseDown={() => setReader(null)}>
           <section className="reader" onMouseDown={(event) => event.stopPropagation()}>
             <header className="reader-topbar">
-              <div className="reader-title"><span className="reader-file"><FileIcon /></span><span><small>{reader.course.code} · {reader.shelf.label}</small><strong>{reader.course.shortTitle} — Sample lecture.pdf</strong></span></div>
+              <div className="reader-title"><span className="reader-file"><FileIcon /></span><span><small>{reader.course.code} · {reader.shelf.label}</small><strong>{activeMaterial?.title ?? "该分类暂无 PDF"}</strong></span></div>
               <div className="reader-tools">
                 <button onClick={() => setZoom((value) => Math.max(60, value - 10))} aria-label="Zoom out">−</button>
                 <span>{zoom}%</span>
@@ -362,23 +410,25 @@ export default function Home() {
             </header>
             <div className="reader-layout">
               <aside className="reader-sidebar">
-                <div className="reader-tabs"><button className="selected">Pages</button><button>Outline</button></div>
-                {[1, 2, 3].map((item) => <button className={`thumbnail ${page === item ? "active" : ""}`} onClick={() => setPage(item)} key={item}><span><i /><i /><i /></span><small>{item}</small></button>)}
+                <div className="reader-tabs"><button className="selected">Files</button><span>{reader.materials.length}</span></div>
+                <div className="material-list">
+                  {reader.materials.map((material) => <button className={`material-item ${activeMaterial?.id === material.id ? "active" : ""}`} onClick={() => { setSelectedMaterialId(material.id); setPage(1); setPageCount(1); }} key={material.id}><span className="material-icon"><FileIcon /></span><span><strong>{material.title}</strong><small>{formatBytes(material.size)}</small></span></button>)}
+                </div>
               </aside>
               <div className="reader-stage">
-                <div className="depth-indicator"><span className="status-dot" /> {storageAvailable === null ? "CHECKING STORAGE" : storageAvailable ? "R2 CONNECTED" : "WORKER FALLBACK"}</div>
-                <PdfCanvas url="/api/demo.pdf" page={page} zoom={zoom} onPageCount={setPageCount} />
+                <div className="depth-indicator"><span className="status-dot" /> {storageAvailable === null ? "CHECKING STORAGE" : storageAvailable ? "PROTECTED R2 LIBRARY" : "STORAGE UNAVAILABLE"}</div>
+                {activeMaterial ? <PdfCanvas url={`/api/materials/${encodeURIComponent(activeMaterial.id)}`} page={page} zoom={zoom} onPageCount={setPageCount} /> : <div className="reader-empty"><ReaderIcon /><strong>这个分类暂时没有 PDF</strong><small>返回课程地图选择一个非空分类。</small></div>}
               </div>
               <aside className="reader-info">
                 <span className="reader-info-icon"><ReaderIcon /></span>
                 <small>DOCUMENT SOURCE</small>
-                <h3>{storageAvailable ? "R2 已连接" : "存储连接测试"}</h3>
-                <p>{storageAvailable ? "示例 PDF 正在从 Sites 文件存储按字节分段读取。" : "阅读器会先使用安全的示例文件；Sites 存储绑定状态正在确认。"}</p>
-                <dl><div><dt>Transport</dt><dd>Range requests</dd></div><div><dt>Render</dt><dd>Visible pages only</dd></div><div><dt>Cache</dt><dd>Private + immutable</dd></div></dl>
-                <div className="reader-note"><span className="status-dot" /><span><strong>{storageAvailable ? "Storage test live" : "Privacy first"}</strong><small>仅写入生成的示例 PDF；本地课程文件尚未上传</small></span></div>
+                <h3>{activeMaterial ? "真实课程资料" : "请选择资料"}</h3>
+                <p>{activeMaterial ? activeMaterial.source.split("/").slice(-4).join(" / ") : "当前分类没有可阅读的 PDF。"}</p>
+                <dl><div><dt>Size</dt><dd>{activeMaterial ? formatBytes(activeMaterial.size) : "—"}</dd></div><div><dt>Transport</dt><dd>Range requests</dd></div><div><dt>Render</dt><dd>Visible page only</dd></div><div><dt>Access</dt><dd>Account protected</dd></div></dl>
+                <div className="reader-note"><span className="status-dot" /><span><strong>{storageAvailable ? "Vault copy online" : "Storage unavailable"}</strong><small>{activeMaterial ? `${reader.course.code} · ${reader.shelf.label} · 校验 ${activeMaterial.sha256.slice(0, 8)}` : "没有加载测试占位文件"}</small></span></div>
               </aside>
             </div>
-            <div className="reader-bottombar"><button onClick={() => setPage((value) => Math.max(1, value - 1))}>←</button><span>PAGE <strong>{page}</strong> / {pageCount}</span><button onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>→</button></div>
+            <div className="reader-bottombar"><button disabled={!activeMaterial} onClick={() => setPage((value) => Math.max(1, value - 1))}>←</button><span>{activeMaterial ? <>PAGE <strong>{page}</strong> / {pageCount}</> : "NO DOCUMENT"}</span><button disabled={!activeMaterial} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>→</button></div>
           </section>
         </div>
       )}
