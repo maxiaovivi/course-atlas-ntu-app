@@ -1,12 +1,13 @@
-const DEMO_KEY = "demo/course-atlas-reader.pdf";
+const DEMO_KEY = "demo/course-atlas-reader-v2.pdf";
 
 function buildDemoPdf() {
   const pageContent = (page) => `q
 0.02 0.14 0.20 rg 0 0 595 842 re f
 0.29 0.79 0.91 RG 2 w 46 742 m 549 742 l S
 BT /F1 11 Tf 0.42 0.85 0.94 rg 46 770 Td (EE6221  /  COURSE ATLAS) Tj ET
-BT /F1 42 Tf 0.92 0.98 1 rg 46 650 Td (Robotics & Intelligent Sensors) Tj ET
-BT /F1 15 Tf 0.53 0.72 0.80 rg 46 614 Td (A live PDF delivered from Sites object storage.) Tj ET
+BT /F1 34 Tf 0.92 0.98 1 rg 46 660 Td (Robotics & Intelligent) Tj ET
+BT /F1 34 Tf 0.92 0.98 1 rg 46 618 Td (Sensors) Tj ET
+BT /F1 15 Tf 0.53 0.72 0.80 rg 46 574 Td (A live PDF delivered from Sites object storage.) Tj ET
 0.05 0.29 0.40 rg 46 244 503 300 re f
 0.29 0.79 0.91 RG 1 w 46 244 503 300 re S
 0.10 0.50 0.66 rg 248 338 100 100 re f
