@@ -1,126 +1,43 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type Course = {
-  code: string;
-  title: string;
-  shortTitle: string;
-  description: string;
-  accent: string;
-  accentSoft: string;
-  files: number;
-  progress: number;
-  next: string;
-  topics: string[];
-  shelves: { label: string; count: number; note: string }[];
-};
-
+type Course = { code: string; name: string; zh: string; color: string };
 type Material = {
   id: string;
   course: string;
   shelf: string;
   title: string;
   size: number;
-  source: string;
   sha256: string;
+  visibility: "public" | "private";
+  readable: boolean;
   updatedAt: string;
 };
+type Session = { signedIn: boolean; owner: boolean; name?: string | null };
 
 const courses: Course[] = [
-  {
-    code: "EE6221",
-    title: "Robotics & Intelligent Sensors",
-    shortTitle: "Robotics",
-    description: "从运动学、控制与移动机器人，到视觉、位姿估计和多传感器融合。",
-    accent: "#58d4ee",
-    accentSoft: "rgba(88, 212, 238, .16)",
-    files: 18,
-    progress: 46,
-    next: "Wednesday · 18:30",
-    topics: ["Kinematics", "Robot Control", "Vision", "Kalman Filter"],
-    shelves: [
-      { label: "Lectures", count: 10, note: "Kinematics → vision" },
-      { label: "Assignments", count: 2, note: "Official briefs" },
-      { label: "Quiz", count: 1, note: "Review material" },
-      { label: "Exams", count: 5, note: "Official papers" },
-    ],
-  },
-  {
-    code: "EE6406",
-    title: "Analytic & Ensemble Machine Learning",
-    shortTitle: "Ensemble ML",
-    description: "覆盖统计学习、集成方法、模型评估，以及从理论到 notebook 的完整路径。",
-    accent: "#55e1c5",
-    accentSoft: "rgba(85, 225, 197, .15)",
-    files: 16,
-    progress: 29,
-    next: "13 lecture sets",
-    topics: ["Analytics", "Ensembles", "Evaluation", "Notebooks"],
-    shelves: [
-      { label: "Lectures", count: 14, note: "AY2024–25 S2" },
-      { label: "Assignments", count: 0, note: "No PDF indexed" },
-      { label: "Study aids", count: 0, note: "No PDF indexed" },
-      { label: "Exams", count: 2, note: "Official papers" },
-    ],
-  },
-  {
-    code: "EE6407",
-    title: "Genetic Algorithms & Machine Learning",
-    shortTitle: "GA & ML",
-    description: "遗传算法、贝叶斯决策、LDA、SVM、分类树、聚类与系统化考试训练。",
-    accent: "#69aef8",
-    accentSoft: "rgba(105, 174, 248, .16)",
-    files: 36,
-    progress: 63,
-    next: "Highest exam coverage",
-    topics: ["Genetic Algorithms", "SVM", "LDA", "Clustering"],
-    shelves: [
-      { label: "Lectures", count: 26, note: "Curated sequence" },
-      { label: "Assignments", count: 3, note: "Official briefs" },
-      { label: "Quiz", count: 1, note: "Historical paper" },
-      { label: "Exams", count: 6, note: "EE6407 + EE6227" },
-    ],
-  },
-  {
-    code: "EE6497",
-    title: "Pattern Recognition & Deep Learning",
-    shortTitle: "Deep Learning",
-    description: "从概率模型到神经网络与 CNN，用两阶段复习路线连接 Quiz 和期末考试。",
-    accent: "#7fe5ff",
-    accentSoft: "rgba(127, 229, 255, .15)",
-    files: 6,
-    progress: 38,
-    next: "Quiz 1 → Quiz 2",
-    topics: ["Probability", "Pattern Recognition", "Neural Nets", "CNN"],
-    shelves: [
-      { label: "Study aids", count: 1, note: "Formula sheet" },
-      { label: "Quiz", count: 2, note: "Two-stage prep" },
-      { label: "Exams", count: 3, note: "EE6497 + IE4497" },
-    ],
-  },
+  { code: "EE6221", name: "Robotics & Intelligent Sensors", zh: "机器人与智能传感", color: "#2db9dd" },
+  { code: "EE6406", name: "Analytic & Ensemble Machine Learning", zh: "分析与集成学习", color: "#24c8bd" },
+  { code: "EE6407", name: "Genetic Algorithms & Machine Learning", zh: "遗传算法与机器学习", color: "#4d9fe8" },
+  { code: "EE6497", name: "Pattern Recognition & Deep Learning", zh: "模式识别与深度学习", color: "#55bfe6" },
 ];
+const shelves = ["All", "Lectures", "Assignments", "Study aids", "Quiz", "Exams"];
 
 function SearchIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.15a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" /></svg>
-  );
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>;
 }
-
-function ArrowIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>;
+function UploadIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m-5 5 5-5 5 5M5 14v5h14v-5" /></svg>;
 }
-
-function SparkIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.7 5.3 2.7 7.3 8 8-5.3.7-7.3 2.7-8 8-.7-5.3-2.7-7.3-8-8 5.3-.7 7.3-2.7 8-8Z" /></svg>;
-}
-
 function FileIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v5h5M10 13h5m-5 4h5" /></svg>;
 }
-
-function ReaderIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H11v17H7.5A3.5 3.5 0 0 0 4 22zm16 0A3.5 3.5 0 0 0 16.5 2H13v17h3.5A3.5 3.5 0 0 1 20 22z" /></svg>;
+function ArrowIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>;
+}
+function ShieldIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.8 2.8 8.1 7 10 4.2-1.9 7-5.2 7-10V6z" /><path d="m9 12 2 2 4-5" /></svg>;
 }
 
 function formatBytes(size: number) {
@@ -132,33 +49,25 @@ function PdfCanvas({ url, page, zoom, onPageCount }: { url: string; page: number
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const documentRef = useRef<import("pdfjs-dist").PDFDocumentProxy | null>(null);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
-  const [documentVersion, setDocumentVersion] = useState(0);
+  const [version, setVersion] = useState(0);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => {
     let disposed = false;
     let loadingTask: import("pdfjs-dist").PDFDocumentLoadingTask | null = null;
-
-    const load = async () => {
-      try {
-        setStatus("loading");
-        const pdfjs = await import("pdfjs-dist");
-        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-        loadingTask = pdfjs.getDocument({ url, rangeChunkSize: 65536 });
-        const document = await loadingTask.promise;
-        if (disposed) return;
-        documentRef.current = document;
-        onPageCount(document.numPages);
-        setDocumentVersion((value) => value + 1);
-      } catch (error) {
-        if (!disposed) {
-          console.error("Unable to load PDF", error);
-          setStatus("error");
-        }
-      }
-    };
-
-    load();
+    setStatus("loading");
+    import("pdfjs-dist").then((pdfjs) => {
+      pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+      loadingTask = pdfjs.getDocument({ url, rangeChunkSize: 65536 });
+      return loadingTask.promise;
+    }).then((document) => {
+      if (disposed) return;
+      documentRef.current = document;
+      onPageCount(document.numPages);
+      setVersion((value) => value + 1);
+    }).catch((error) => {
+      if (!disposed) { console.error(error); setStatus("error"); }
+    });
     return () => {
       disposed = true;
       renderTaskRef.current?.cancel();
@@ -172,266 +81,205 @@ function PdfCanvas({ url, page, zoom, onPageCount }: { url: string; page: number
     const canvas = canvasRef.current;
     if (!document || !canvas) return;
     let disposed = false;
-
-    const render = async () => {
-      try {
-        renderTaskRef.current?.cancel();
-        const pdfPage = await document.getPage(Math.min(page, document.numPages));
-        if (disposed) return;
-        const viewport = pdfPage.getViewport({ scale: 1.2 * (zoom / 100) });
-        const outputScale = Math.min(window.devicePixelRatio || 1, 2);
-        const context = canvas.getContext("2d", { alpha: false });
-        if (!context) throw new Error("Canvas is unavailable");
-        canvas.width = Math.floor(viewport.width * outputScale);
-        canvas.height = Math.floor(viewport.height * outputScale);
-        canvas.style.width = `${Math.floor(viewport.width)}px`;
-        canvas.style.height = `${Math.floor(viewport.height)}px`;
-        const renderTask = pdfPage.render({
-          canvas,
-          canvasContext: context,
-          viewport,
-          transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
-        });
-        renderTaskRef.current = renderTask;
-        await renderTask.promise;
-        if (!disposed) setStatus("ready");
-      } catch (error) {
-        if (!disposed && (error as { name?: string }).name !== "RenderingCancelledException") {
-          console.error("Unable to render PDF page", error);
-          setStatus("error");
-        }
-      }
-    };
-
-    render();
-    return () => {
-      disposed = true;
+    document.getPage(Math.min(page, document.numPages)).then((pdfPage) => {
+      if (disposed) return;
       renderTaskRef.current?.cancel();
-    };
-  }, [documentVersion, page, zoom]);
+      const viewport = pdfPage.getViewport({ scale: 1.18 * zoom / 100 });
+      const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) throw new Error("Canvas unavailable");
+      canvas.width = Math.floor(viewport.width * outputScale);
+      canvas.height = Math.floor(viewport.height * outputScale);
+      canvas.style.width = `${Math.floor(viewport.width)}px`;
+      canvas.style.height = `${Math.floor(viewport.height)}px`;
+      const task = pdfPage.render({ canvas, canvasContext: context, viewport, transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0] });
+      renderTaskRef.current = task;
+      return task.promise;
+    }).then(() => { if (!disposed) setStatus("ready"); }).catch((error) => {
+      if (!disposed && error?.name !== "RenderingCancelledException") setStatus("error");
+    });
+    return () => { disposed = true; renderTaskRef.current?.cancel(); };
+  }, [version, page, zoom]);
 
-  return (
-    <div className={`pdf-canvas-wrap ${status}`}>
-      {status === "loading" && <div className="pdf-loading"><span /><strong>正在从存储空间读取 PDF</strong><small>Preparing byte ranges…</small></div>}
-      {status === "error" && <div className="pdf-loading error"><strong>PDF 暂时无法读取</strong><small>请检查 Sites 文件存储绑定。</small></div>}
-      <canvas ref={canvasRef} aria-label={`PDF page ${page}`} />
-    </div>
-  );
+  return <div className={`pdf-canvas ${status}`}>
+    {status !== "ready" && <div className="pdf-wait"><span /><strong>{status === "error" ? "PDF 加载失败" : "正在从果冻海里捞取这一页…"}</strong><small>{status === "error" ? "请关闭后重试" : "只读取需要显示的字节"}</small></div>}
+    <canvas ref={canvasRef} />
+  </div>;
 }
 
 export default function Home() {
-  const [query, setQuery] = useState("");
-  const [activeCourse, setActiveCourse] = useState<Course | null>(null);
-  const [reader, setReader] = useState<{ course: Course; shelf: Course["shelves"][number]; materials: Material[] } | null>(null);
-  const [selectedMaterialId, setSelectedMaterialId] = useState<string | null>(null);
   const [materials, setMaterials] = useState<Material[]>([]);
-  const [catalogLoaded, setCatalogLoaded] = useState(false);
-  const [catalogError, setCatalogError] = useState(false);
-  const [view, setView] = useState<"grid" | "focus">("grid");
+  const [session, setSession] = useState<Session>({ signedIn: false, owner: false });
+  const [loaded, setLoaded] = useState(false);
+  const [courseCode, setCourseCode] = useState("EE6221");
+  const [shelf, setShelf] = useState("All");
+  const [query, setQuery] = useState("");
+  const [pending, setPending] = useState<Material | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState("");
+  const [reader, setReader] = useState<Material | null>(null);
+  const [readerUrl, setReaderUrl] = useState("");
   const [page, setPage] = useState(1);
+  const [pageCount, setPageCount] = useState(1);
   const [zoom, setZoom] = useState(100);
-  const [pageCount, setPageCount] = useState(3);
-  const [storageAvailable, setStorageAvailable] = useState<boolean | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadCourse, setUploadCourse] = useState("EE6221");
+  const [uploadShelf, setUploadShelf] = useState("Lectures");
+  const [uploadVisibility, setUploadVisibility] = useState<"private" | "public">("private");
+  const [rightsConfirmed, setRightsConfirmed] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
+  const [uploadMessage, setUploadMessage] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    fetch("/api/library", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Library request failed: ${response.status}`);
-        return response.json() as Promise<{ materials?: Material[]; storageAvailable?: boolean }>;
-      })
-      .then((data) => {
-        setMaterials(Array.isArray(data.materials) ? data.materials : []);
-        setStorageAvailable(Boolean(data.storageAvailable));
-        setCatalogLoaded(true);
-      })
-      .catch(() => {
-        setCatalogError(true);
-        setStorageAvailable(false);
-        setCatalogLoaded(true);
-      });
+  const loadLibrary = useCallback(async () => {
+    const response = await fetch("/api/library", { cache: "no-store" });
+    if (!response.ok) throw new Error("library unavailable");
+    const data = await response.json() as { materials?: Material[] };
+    setMaterials(Array.isArray(data.materials) ? data.materials : []);
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
+    Promise.all([
+      loadLibrary().catch(() => setLoaded(true)),
+      fetch("/api/session", { cache: "no-store" }).then((response) => response.json()).then(setSession).catch(() => undefined),
+    ]);
+  }, [loadLibrary]);
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (reader) setReader(null);
-        else setActiveCourse(null);
-      }
+      if (event.key !== "Escape") return;
+      if (reader) setReader(null);
+      else if (pending) setPending(null);
+      else if (uploadOpen) setUploadOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [reader]);
+  }, [reader, pending, uploadOpen]);
 
-  const activeMaterial = reader
-    ? reader.materials.find((material) => material.id === selectedMaterialId) ?? reader.materials[0] ?? null
-    : null;
+  const course = courses.find((item) => item.code === courseCode) ?? courses[0];
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return materials.filter((material) => material.course === courseCode && (shelf === "All" || material.shelf === shelf) && (!needle || material.title.toLowerCase().includes(needle)));
+  }, [materials, courseCode, shelf, query]);
 
-  const materialsFor = (courseCode: string, shelfLabel: string) =>
-    materials.filter((material) => material.course === courseCode && material.shelf === shelfLabel);
+  const chooseCourse = (code: string) => { setCourseCode(code); setUploadCourse(code); setShelf("All"); };
 
-  const openShelf = (course: Course, shelf: Course["shelves"][number]) => {
-    const shelfMaterials = materialsFor(course.code, shelf.label);
-    setReader({ course, shelf, materials: shelfMaterials });
-    setSelectedMaterialId(shelfMaterials[0]?.id ?? null);
-    setPage(1);
-    setPageCount(1);
-    setZoom(100);
+  const confirmAndOpen = async () => {
+    if (!pending) return;
+    if (!pending.readable) { window.location.href = "/signin-with-chatgpt"; return; }
+    setConfirming(true);
+    setConfirmError("");
+    try {
+      const response = await fetch(`/api/materials/${encodeURIComponent(pending.id)}/confirm`, { method: "POST" });
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "确认失败");
+      setReaderUrl(`/api/materials/${encodeURIComponent(pending.id)}?v=${encodeURIComponent(pending.sha256.slice(0, 12))}`);
+      setReader(pending);
+      setPending(null);
+      setPage(1);
+      setPageCount(1);
+      setZoom(100);
+    } catch (error) {
+      setConfirmError(error instanceof Error ? error.message : "确认失败");
+    } finally { setConfirming(false); }
   };
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return courses;
-    return courses.filter((course) =>
-      [course.code, course.title, course.description, ...course.topics]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle),
-    );
-  }, [query]);
+  const uploadPdf = async () => {
+    if (!uploadFile || !session.owner) return;
+    if (uploadVisibility === "public" && !rightsConfirmed) { setUploadMessage("公开分享前需要确认你拥有分享权利。"); return; }
+    setUploadStatus("uploading");
+    setUploadMessage("");
+    const params = new URLSearchParams({
+      course: uploadCourse,
+      shelf: uploadShelf,
+      title: uploadFile.name,
+      visibility: uploadVisibility,
+      rightsConfirmed: rightsConfirmed ? "1" : "0",
+    });
+    try {
+      const response = await fetch(`/api/upload?${params}`, { method: "POST", headers: { "content-type": "application/pdf" }, body: uploadFile });
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "上传失败");
+      await loadLibrary();
+      setCourseCode(uploadCourse);
+      setShelf(uploadShelf);
+      setUploadStatus("done");
+      setUploadMessage("上传完成，资料已经出现在列表里。");
+      setUploadFile(null);
+    } catch (error) {
+      setUploadStatus("error");
+      setUploadMessage(error instanceof Error ? error.message : "上传失败");
+    }
+  };
 
-  return (
-    <main>
-      <div className="aurora aurora-one" />
-      <div className="aurora aurora-two" />
-      <div className="caustics" aria-hidden="true" />
+  return <main>
+    <div className="sea-glow" /><div className="shore" /><div className="water-lines" />
+    <header className="topbar shell">
+      <a className="brand" href="#top"><span className="brand-jelly">知</span><span><strong>知屿</strong><small>NTU STUDY ATLAS</small></span></a>
+      <div className="top-actions"><span className="public-badge"><i /> 公共访问</span><button className="upload-button" onClick={() => { setUploadCourse(courseCode); setUploadOpen(true); }}><UploadIcon />上传 PDF</button></div>
+    </header>
 
-      <header className="topbar shell">
-        <a className="brand" href="#top" aria-label="Course Atlas home">
-          <span className="brand-mark"><SparkIcon /></span>
-          <span><strong>知屿</strong><small>COURSE ATLAS</small></span>
-        </a>
-        <nav aria-label="Primary navigation">
-          <a className="active" href="#library">Library</a>
-          <a href="#roadmap">Roadmap</a>
-          <a href="#about">About</a>
-        </nav>
-        <div className="profile" title="Shared course library">
-          <span className="status-dot" />
-          <span className="profile-copy"><strong>Study circle</strong><small>Shared library</small></span>
-          <span className="avatar">Y</span>
+    <section className="intro shell" id="top">
+      <div><span className="overline">A SMALL, CLEAR COURSE LIBRARY</span><h1>课程资料，<em>打开就读。</em></h1><p>选择课程和分类，确认后直接进入阅读器。没有导航迷宫，也没有多余步骤。</p></div>
+      <div className="sea-orb"><span>{materials.length}</span><small>PDF FILES</small><i /><i /><i /></div>
+    </section>
+
+    <section className="library shell">
+      <div className="library-bar">
+        <div className="course-tabs" role="tablist" aria-label="Courses">
+          {courses.map((item) => <button key={item.code} className={courseCode === item.code ? "active" : ""} onClick={() => chooseCourse(item.code)} style={{ "--tab-color": item.color } as React.CSSProperties}><span>{item.code}</span><small>{materials.filter((material) => material.course === item.code).length}</small></button>)}
         </div>
-      </header>
+        <label className="search"><SearchIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 PDF…" /></label>
+      </div>
 
-      <section className="hero shell" id="top">
-        <div className="eyebrow"><span>AY 2026–27</span><i />SEMESTER 1</div>
-        <div className="hero-grid">
-          <div>
-            <h1>让知识沉入深海，<br /><em>再被温柔照亮。</em></h1>
-            <p>一座为课程资料而建的蓝色岛屿。讲义、测验、往年试卷与学习路径各归其位，让你和同行的人随时找到方向。</p>
-          </div>
-          <div className="orbit-card" aria-label="Library overview">
-            <div className="orbit orbit-a" />
-            <div className="orbit orbit-b" />
-            <div className="planet"><span>4</span><small>COURSES</small></div>
-            <span className="satellite satellite-a" />
-            <span className="satellite satellite-b" />
-            <span className="satellite satellite-c" />
-            <div className="orbit-note"><strong>{catalogLoaded ? materials.length : "···"}</strong><span>protected PDFs</span></div>
-          </div>
-        </div>
-      </section>
+      <div className="course-heading"><div><small>{course.code}</small><h2>{course.name}</h2><p>{course.zh}</p></div><span>{materials.filter((material) => material.course === courseCode).length} 份资料</span></div>
+      <div className="shelf-tabs" role="tablist" aria-label="Material types">
+        {shelves.map((item) => { const count = materials.filter((material) => material.course === courseCode && (item === "All" || material.shelf === item)).length; return <button key={item} className={shelf === item ? "active" : ""} onClick={() => setShelf(item)}>{item}<small>{count}</small></button>; })}
+      </div>
 
-      <section className="library shell" id="library">
-        <div className="section-head">
-          <div><span className="section-index">01</span><h2>Your library</h2><p>四门课程，一套清晰的学习坐标。</p></div>
-          <div className="library-tools">
-            <label className="search"><SearchIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索课程或主题…" /><kbd>⌘ K</kbd></label>
-            <div className="view-switch" aria-label="View switcher">
-              <button className={view === "grid" ? "selected" : ""} onClick={() => setView("grid")} aria-label="Grid view">▦</button>
-              <button className={view === "focus" ? "selected" : ""} onClick={() => setView("focus")} aria-label="Focus view">☰</button>
-            </div>
-          </div>
-        </div>
+      <div className="file-list">
+        {!loaded && [1,2,3,4].map((item) => <div className="file-card skeleton" key={item} />)}
+        {loaded && visible.map((material, index) => <button className="file-card" onClick={() => { setConfirmError(""); setPending(material); }} key={material.id} style={{ "--delay": `${Math.min(index, 8) * 35}ms` } as React.CSSProperties}>
+          <span className="file-icon"><FileIcon /></span>
+          <span className="file-copy"><strong>{material.title}</strong><small>{material.shelf} · {formatBytes(material.size)}</small></span>
+          <span className={`access-pill ${material.visibility}`}>{material.visibility === "public" ? "PUBLIC" : material.readable ? "PRIVATE" : "OWNER"}</span>
+          <span className="file-arrow"><ArrowIcon /></span>
+        </button>)}
+        {loaded && visible.length === 0 && <div className="empty"><span>∿</span><strong>这里还是一片浅海</strong><small>换个分类，或者直接上传一份 PDF。</small></div>}
+      </div>
+    </section>
 
-        <div className={`course-grid ${view === "focus" ? "focus-view" : ""}`}>
-          {filtered.map((course, index) => (
-            <article className="course-card" key={course.code} style={{ "--accent": course.accent, "--accent-soft": course.accentSoft } as React.CSSProperties}>
-              <div className="card-top"><span className="course-number">0{index + 1}</span><span className="file-count">{catalogLoaded ? materials.filter((material) => material.course === course.code).length : course.files} PDF</span></div>
-              <div className="course-symbol"><span /><i /></div>
-              <div className="course-code">{course.code}</div>
-              <h3>{course.shortTitle}</h3>
-              <p>{course.description}</p>
-              <div className="tags">{course.topics.slice(0, 3).map((topic) => <span key={topic}>{topic}</span>)}</div>
-              <div className="progress-row"><span><i style={{ width: `${course.progress}%` }} /></span><small>{course.progress}% mapped</small></div>
-              <button className="open-course" onClick={() => setActiveCourse(course)}>进入课程 <ArrowIcon /></button>
-            </article>
-          ))}
-          {filtered.length === 0 && <div className="empty-state"><SparkIcon /><h3>暂时没有匹配项</h3><p>试试课程代码、SVM、CNN 或 Robotics。</p></div>}
-        </div>
-      </section>
+    <footer className="shell"><span>知屿 · Course Atlas</span><small>JELLY SEA EDITION · 2026</small></footer>
 
-      <section className="roadmap shell" id="roadmap">
-        <div className="roadmap-copy">
-          <span className="section-index">02</span>
-          <h2>This week’s orbit</h2>
-          <p>真实课程 PDF 已接入受控存储；阅读器只渲染当前页面，并按需读取文件字节范围。</p>
-        </div>
-        <div className="timeline">
-          <div className="timeline-line" />
-          <div className="timeline-item active"><span>01</span><div><small>LIVE</small><strong>资料地图</strong><p>{materials.length || 76} 份课程 PDF 已整理</p></div></div>
-          <div className="timeline-item active"><span>02</span><div><small>LIVE</small><strong>PDF 阅读</strong><p>从私有对象存储分段加载</p></div></div>
-          <div className="timeline-item"><span>03</span><div><small>LATER</small><strong>全文搜索</strong><p>跨课程定位知识点</p></div></div>
-        </div>
-      </section>
+    {pending && <div className="overlay" onMouseDown={() => setPending(null)}><section className="confirm-card" onMouseDown={(event) => event.stopPropagation()}>
+      <button className="close" onClick={() => setPending(null)}>×</button><span className="confirm-icon"><ShieldIcon /></span><small>加载前确认</small><h2>{pending.title}</h2>
+      <div className="confirm-meta"><span>{pending.course}</span><span>{pending.shelf}</span><span>{formatBytes(pending.size)}</span></div>
+      <p>{pending.visibility === "public" ? "这份 PDF 已被上传者标记为可公开分享。确认后，阅读器才会开始请求文件内容。" : pending.readable ? "这是受保护的课程资料。确认仅用于个人学习，并遵守课程材料的使用范围后再加载。" : "这份 NTU 课程资料没有公开分发许可。公共访客可以浏览目录，但只有资料库所有者登录后才能读取。"}</p>
+      {confirmError && <div className="inline-error">{confirmError}</div>}
+      <button className="primary-action" disabled={confirming} onClick={confirmAndOpen}>{confirming ? "正在确认…" : pending.readable ? "确认并加载 PDF" : "所有者登录后读取"}<ArrowIcon /></button>
+      <small className="confirm-foot">PDF 不会在确认之前预加载</small>
+    </section></div>}
 
-      <footer className="shell" id="about"><span>知屿 · Course Atlas</span><p>Built for a small circle of curious minds.</p><small>SHARED LIBRARY · 2026</small></footer>
+    {uploadOpen && <div className="overlay" onMouseDown={() => setUploadOpen(false)}><section className="upload-card" onMouseDown={(event) => event.stopPropagation()}>
+      <button className="close" onClick={() => setUploadOpen(false)}>×</button><span className="modal-label">UPLOAD PDF</span><h2>放进资料库</h2><p>访问网站不需要登录；为了防止公共存储被滥用，上传仅限资料库所有者。</p>
+      {!session.owner ? <div className="signin-panel"><ShieldIcon /><strong>需要所有者身份</strong><small>登录只用于上传权限，不影响任何人浏览公开网站。</small><a href="/signin-with-chatgpt">使用 ChatGPT 登录</a></div> : <>
+        <div className="upload-course-tabs">{courses.map((item) => <button key={item.code} className={uploadCourse === item.code ? "active" : ""} onClick={() => setUploadCourse(item.code)}>{item.code}</button>)}</div>
+        <div className="upload-shelf-tabs">{shelves.slice(1).map((item) => <button key={item} className={uploadShelf === item ? "active" : ""} onClick={() => setUploadShelf(item)}>{item}</button>)}</div>
+        <button className={`drop-zone ${uploadFile ? "has-file" : ""}`} onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const file = event.dataTransfer.files[0]; if (file?.type === "application/pdf" || file?.name.toLowerCase().endsWith(".pdf")) setUploadFile(file); }}><UploadIcon /><strong>{uploadFile ? uploadFile.name : "选择或拖入 PDF"}</strong><small>{uploadFile ? formatBytes(uploadFile.size) : "单个文件不超过 75 MB"}</small></button>
+        <input ref={fileInputRef} hidden type="file" accept="application/pdf,.pdf" onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} />
+        <div className="visibility-tabs"><button className={uploadVisibility === "private" ? "active" : ""} onClick={() => setUploadVisibility("private")}><strong>仅自己</strong><small>适合课程受限资料</small></button><button className={uploadVisibility === "public" ? "active" : ""} onClick={() => setUploadVisibility("public")}><strong>公开分享</strong><small>所有访客确认后可读</small></button></div>
+        {uploadVisibility === "public" && <label className="rights-check"><input type="checkbox" checked={rightsConfirmed} onChange={(event) => setRightsConfirmed(event.target.checked)} /><span>我确认拥有公开分享这份文件的权利，且文件不含个人或敏感信息。</span></label>}
+        {uploadMessage && <div className={`upload-message ${uploadStatus}`}>{uploadMessage}</div>}
+        <button className="primary-action" disabled={!uploadFile || uploadStatus === "uploading" || (uploadVisibility === "public" && !rightsConfirmed)} onClick={uploadPdf}>{uploadStatus === "uploading" ? "正在上传…" : "上传到资料库"}<UploadIcon /></button>
+      </>}
+    </section></div>}
 
-      {activeCourse && (
-        <div className="modal-backdrop" onMouseDown={() => setActiveCourse(null)}>
-          <section className="course-modal" onMouseDown={(event) => event.stopPropagation()} style={{ "--accent": activeCourse.accent, "--accent-soft": activeCourse.accentSoft } as React.CSSProperties}>
-            <button className="close" onClick={() => setActiveCourse(null)} aria-label="Close">×</button>
-            <span className="modal-kicker">{activeCourse.code} · COURSE MAP</span>
-            <h2>{activeCourse.title}</h2>
-            <p>{activeCourse.description}</p>
-            <div className="modal-stat"><span><strong>{catalogLoaded ? materials.filter((material) => material.course === activeCourse.code).length : activeCourse.files}</strong><small>protected PDFs</small></span><span><strong>{activeCourse.progress}%</strong><small>mapped</small></span><span><strong>{activeCourse.next}</strong><small>study signal</small></span></div>
-            <div className="shelf-grid">
-              {activeCourse.shelves.map((shelf) => {
-                const count = catalogLoaded ? materialsFor(activeCourse.code, shelf.label).length : shelf.count;
-                return <button key={shelf.label} disabled={catalogLoaded && count === 0} onClick={() => openShelf(activeCourse, shelf)}><span>{count}</span><span className="shelf-copy"><strong>{shelf.label}</strong><small>{count ? shelf.note : "No PDF indexed"}</small></span><ArrowIcon /></button>;
-              })}
-            </div>
-            <div className={`notice ${catalogError ? "warning" : ""}`}><SparkIcon /><span><strong>{catalogError ? "目录暂时无法读取" : catalogLoaded ? "Protected vault connected" : "正在读取课程目录"}</strong>{catalogError ? "请刷新页面重试；本地 Vault 未受到影响。" : "点击任一非空分类，直接阅读 ntu_study 中筛选并上传的真实 PDF。"}</span></div>
-          </section>
-        </div>
-      )}
-
-      {reader && (
-        <div className="reader-backdrop" onMouseDown={() => setReader(null)}>
-          <section className="reader" onMouseDown={(event) => event.stopPropagation()}>
-            <header className="reader-topbar">
-              <div className="reader-title"><span className="reader-file"><FileIcon /></span><span><small>{reader.course.code} · {reader.shelf.label}</small><strong>{activeMaterial?.title ?? "该分类暂无 PDF"}</strong></span></div>
-              <div className="reader-tools">
-                <button onClick={() => setZoom((value) => Math.max(60, value - 10))} aria-label="Zoom out">−</button>
-                <span>{zoom}%</span>
-                <button onClick={() => setZoom((value) => Math.min(180, value + 10))} aria-label="Zoom in">＋</button>
-                <i />
-                <button className="reader-close" onClick={() => setReader(null)} aria-label="Close reader">×</button>
-              </div>
-            </header>
-            <div className="reader-layout">
-              <aside className="reader-sidebar">
-                <div className="reader-tabs"><button className="selected">Files</button><span>{reader.materials.length}</span></div>
-                <div className="material-list">
-                  {reader.materials.map((material) => <button className={`material-item ${activeMaterial?.id === material.id ? "active" : ""}`} onClick={() => { setSelectedMaterialId(material.id); setPage(1); setPageCount(1); }} key={material.id}><span className="material-icon"><FileIcon /></span><span><strong>{material.title}</strong><small>{formatBytes(material.size)}</small></span></button>)}
-                </div>
-              </aside>
-              <div className="reader-stage">
-                <div className="depth-indicator"><span className="status-dot" /> {storageAvailable === null ? "CHECKING STORAGE" : storageAvailable ? "PROTECTED R2 LIBRARY" : "STORAGE UNAVAILABLE"}</div>
-                {activeMaterial ? <PdfCanvas url={`/api/materials/${encodeURIComponent(activeMaterial.id)}`} page={page} zoom={zoom} onPageCount={setPageCount} /> : <div className="reader-empty"><ReaderIcon /><strong>这个分类暂时没有 PDF</strong><small>返回课程地图选择一个非空分类。</small></div>}
-              </div>
-              <aside className="reader-info">
-                <span className="reader-info-icon"><ReaderIcon /></span>
-                <small>DOCUMENT SOURCE</small>
-                <h3>{activeMaterial ? "真实课程资料" : "请选择资料"}</h3>
-                <p>{activeMaterial ? activeMaterial.source.split("/").slice(-4).join(" / ") : "当前分类没有可阅读的 PDF。"}</p>
-                <dl><div><dt>Size</dt><dd>{activeMaterial ? formatBytes(activeMaterial.size) : "—"}</dd></div><div><dt>Transport</dt><dd>Range requests</dd></div><div><dt>Render</dt><dd>Visible page only</dd></div><div><dt>Access</dt><dd>Account protected</dd></div></dl>
-                <div className="reader-note"><span className="status-dot" /><span><strong>{storageAvailable ? "Vault copy online" : "Storage unavailable"}</strong><small>{activeMaterial ? `${reader.course.code} · ${reader.shelf.label} · 校验 ${activeMaterial.sha256.slice(0, 8)}` : "没有加载测试占位文件"}</small></span></div>
-              </aside>
-            </div>
-            <div className="reader-bottombar"><button disabled={!activeMaterial} onClick={() => setPage((value) => Math.max(1, value - 1))}>←</button><span>{activeMaterial ? <>PAGE <strong>{page}</strong> / {pageCount}</> : "NO DOCUMENT"}</span><button disabled={!activeMaterial} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>→</button></div>
-          </section>
-        </div>
-      )}
-    </main>
-  );
+    {reader && <div className="reader-overlay"><section className="reader-shell">
+      <header><div><span className="reader-file-icon"><FileIcon /></span><span><small>{reader.course} · {reader.shelf}</small><strong>{reader.title}</strong></span></div><div className="reader-tools"><button onClick={() => setZoom((value) => Math.max(60, value - 10))}>−</button><span>{zoom}%</span><button onClick={() => setZoom((value) => Math.min(180, value + 10))}>＋</button><button className="reader-close" onClick={() => setReader(null)}>×</button></div></header>
+      <div className="reader-stage"><PdfCanvas url={readerUrl} page={page} zoom={zoom} onPageCount={setPageCount} /></div>
+      <footer><button onClick={() => setPage((value) => Math.max(1, value - 1))}>←</button><span>PAGE <strong>{page}</strong> / {pageCount}</span><button onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>→</button></footer>
+    </section></div>}
+  </main>;
 }
