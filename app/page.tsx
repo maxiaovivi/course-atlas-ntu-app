@@ -161,7 +161,10 @@ export default function Home() {
   const course = courses.find((item) => item.code === courseCode) ?? courses[0];
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return materials.filter((material) => material.course === courseCode && (shelf === "All" || material.shelf === shelf) && (!needle || material.title.toLowerCase().includes(needle)));
+    const shelfOrder = new Map(shelves.slice(1).map((item, index) => [item, index]));
+    return materials
+      .filter((material) => material.course === courseCode && (shelf === "All" || material.shelf === shelf) && (!needle || material.title.toLowerCase().includes(needle)))
+      .sort((left, right) => (shelfOrder.get(left.shelf) ?? 99) - (shelfOrder.get(right.shelf) ?? 99) || left.title.localeCompare(right.title, undefined, { numeric: true, sensitivity: "base" }));
   }, [materials, courseCode, shelf, query]);
 
   const chooseCourse = (code: string) => { setCourseCode(code); setUploadCourse(code); setShelf("All"); };
@@ -222,8 +225,8 @@ export default function Home() {
     </header>
 
     <section className="intro shell" id="top">
-      <div><span className="overline">A SMALL, CLEAR COURSE LIBRARY</span><h1>课程资料，<em>打开就读。</em></h1><p>选择课程和分类，确认后直接进入阅读器。没有导航迷宫，也没有多余步骤。</p></div>
-      <div className="sea-orb"><span>{materials.length}</span><small>PDF FILES</small><i /><i /><i /></div>
+      <div><span className="overline">NTU STUDY MATERIALS</span><h1>课程资料库</h1><p>按课程与资料类型整理。选择文件，确认后加载 PDF。</p></div>
+      <div className="sea-orb"><small>已收录</small><span>{materials.length}</span><strong>份 PDF</strong></div>
     </section>
 
     <section className="library shell">
@@ -236,14 +239,17 @@ export default function Home() {
 
       <div className="course-heading"><div><small>{course.code}</small><h2>{course.name}</h2><p>{course.zh}</p></div><span>{materials.filter((material) => material.course === courseCode).length} 份资料</span></div>
       <div className="shelf-tabs" role="tablist" aria-label="Material types">
-        {shelves.map((item) => { const count = materials.filter((material) => material.course === courseCode && (item === "All" || material.shelf === item)).length; return <button key={item} className={shelf === item ? "active" : ""} onClick={() => setShelf(item)}>{item}<small>{count}</small></button>; })}
+        {shelves.map((item) => ({ item, count: materials.filter((material) => material.course === courseCode && (item === "All" || material.shelf === item)).length })).filter(({ item, count }) => item === "All" || count > 0).map(({ item, count }) => <button key={item} className={shelf === item ? "active" : ""} onClick={() => setShelf(item)}>{item}<small>{count}</small></button>)}
       </div>
 
       <div className="file-list">
+        {loaded && visible.length > 0 && <div className="file-columns"><span>文件</span><span>类型</span><span>大小</span><span>访问</span><i /></div>}
         {!loaded && [1,2,3,4].map((item) => <div className="file-card skeleton" key={item} />)}
         {loaded && visible.map((material, index) => <button className="file-card" onClick={() => { setConfirmError(""); setPending(material); }} key={material.id} style={{ "--delay": `${Math.min(index, 8) * 35}ms` } as React.CSSProperties}>
           <span className="file-icon"><FileIcon /></span>
-          <span className="file-copy"><strong>{material.title}</strong><small>{material.shelf} · {formatBytes(material.size)}</small></span>
+          <span className="file-copy"><strong>{material.title}</strong><small>{material.course}</small></span>
+          <span className="file-type">{material.shelf}</span>
+          <span className="file-size">{formatBytes(material.size)}</span>
           <span className={`access-pill ${material.visibility}`}>{material.visibility === "public" ? "PUBLIC" : material.readable ? "PRIVATE" : "OWNER"}</span>
           <span className="file-arrow"><ArrowIcon /></span>
         </button>)}
