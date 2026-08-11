@@ -72,3 +72,64 @@ test("schedule update rejects missing credentials and invalid data", async () =>
   assert.equal(invalid.status, 400);
   assert.equal(bucket.objects.size, 0);
 });
+
+test("NTULearn snapshots accept sanitized metadata and reject non-NTU URLs", async () => {
+  const bucket = new MemoryBucket();
+  const env = { FILES: bucket, UPLOAD_TOKEN: "test-only-token" };
+  const snapshot = {
+    version: 1,
+    collectedAt: "2026-08-11T08:00:00.000Z",
+    courses: [{ id: "course-id", code: "EE6221", name: "Robotics & Intelligent Sensors" }],
+    items: [{
+      id: "announcement-id",
+      courseCode: "EE6221",
+      type: "announcement",
+      title: "Week 1 update",
+      url: "https://ntulearn.ntu.edu.sg/ultra/courses/course-id/announcements",
+      publishedAt: "2026-08-11T07:30:00.000Z",
+      updatedAt: null,
+      dueAt: null,
+    }],
+  };
+  const update = await worker.fetch(new Request("https://example.test/api/admin/ntulearn", {
+    method: "PUT",
+    headers: { "content-type": "application/json", "x-upload-token": "test-only-token" },
+    body: JSON.stringify(snapshot),
+  }), env);
+  assert.equal(update.status, 200);
+
+  const read = await worker.fetch(new Request("https://example.test/api/ntulearn"), env);
+  assert.deepEqual(await read.json(), snapshot);
+
+  snapshot.items[0].url = "https://example.com/private";
+  const rejected = await worker.fetch(new Request("https://example.test/api/admin/ntulearn", {
+    method: "PUT",
+    headers: { "content-type": "application/json", "x-upload-token": "test-only-token" },
+    body: JSON.stringify(snapshot),
+  }), env);
+  assert.equal(rejected.status, 400);
+});
+
+test("NTULearn refresh is queued once and invokes the private collector", async () => {
+  const bucket = new MemoryBucket();
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, authorization: init.headers.Authorization });
+    return Response.json({ accepted: true }, { status: 202 });
+  };
+  try {
+    const tasks = [];
+    const env = { FILES: bucket, NTULEARN_COLLECTOR_URL: "https://collector.example", NTULEARN_COLLECTOR_TOKEN: "collector-token" };
+    const first = await worker.fetch(new Request("https://example.test/api/ntulearn/refresh", { method: "POST" }), env, { waitUntil: (task) => tasks.push(task) });
+    assert.equal(first.status, 202);
+    await Promise.all(tasks);
+    assert.deepEqual(calls, [{ url: "https://collector.example/refresh", authorization: "Bearer collector-token" }]);
+
+    const second = await worker.fetch(new Request("https://example.test/api/ntulearn/refresh", { method: "POST" }), env);
+    assert.equal(second.status, 202);
+    assert.equal(calls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

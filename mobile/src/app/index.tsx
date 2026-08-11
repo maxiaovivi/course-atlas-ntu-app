@@ -7,13 +7,15 @@ import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withRepea
 import { palette } from '@/constants/palette';
 import { CourseSession, getNextClass } from '@/core/schedule';
 import { useSchedule } from '@/hooks/use-schedule';
+import { useNtuLearnSync } from '@/hooks/use-ntulearn-sync';
 import { PressableScale } from '@/components/pressable-scale';
 import { ScheduleSheet } from '@/components/schedule-sheet';
 
 const DAY_NUMBERS: Record<number, string> = { 0: 'SUN', 1: 'MON', 2: 'TUE', 3: 'WED', 4: 'THU', 5: 'FRI', 6: 'SAT' };
 
 export default function HomeScreen() {
-  const { schedule, source, refreshing, refresh } = useSchedule();
+  const { schedule, refreshing, refresh } = useSchedule();
+  const { status: ntuStatus, activating, activate } = useNtuLearnSync();
   const [selected, setSelected] = useState<CourseSession | null>(null);
   const nextClass = useMemo(() => getNextClass(schedule), [schedule]);
   const reducedMotion = useReducedMotion();
@@ -27,6 +29,9 @@ export default function HomeScreen() {
   const glowStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: drift.value * -22 }, { translateY: drift.value * 18 }, { scale: 1 + drift.value * 0.05 }],
   }));
+
+  const syncActive = activating || ntuStatus.state === 'queued' || ntuStatus.state === 'running';
+  const syncLabel = syncActive ? '正在同步' : ntuStatus.state === 'login_required' ? '需要登录' : ntuStatus.state === 'error' ? '重试同步' : '刷新 NTULearn';
 
   return (
     <LinearGradient colors={['#E6F9FD', '#F8FEFB', '#F8F2E3']} locations={[0, 0.58, 1]} style={styles.background}>
@@ -45,7 +50,10 @@ export default function HomeScreen() {
                 <Text style={styles.brandCaption}>NTU COURSE ATLAS</Text>
               </View>
             </View>
-            <View style={styles.syncPill}><View style={[styles.syncDot, source !== 'live' && styles.syncDotOffline]} /><Text style={styles.syncPillText}>{source === 'live' ? '已同步' : source === 'cache' ? '离线缓存' : '正在同步'}</Text></View>
+            <PressableScale accessibilityRole="button" accessibilityLabel="刷新 NTULearn" disabled={syncActive} onPress={activate} style={styles.syncPill}>
+              <View style={[styles.syncDot, (ntuStatus.state === 'error' || ntuStatus.state === 'login_required') && styles.syncDotOffline]} />
+              <Text style={styles.syncPillText}>{syncLabel}</Text>
+            </PressableScale>
           </View>
 
           <View style={styles.heading}>
@@ -99,6 +107,7 @@ export default function HomeScreen() {
             ))}
           </View></>}
 
+          {ntuStatus.message && <View style={styles.syncNotice}><Text style={styles.syncNoticeText}>{ntuStatus.message}</Text></View>}
           {schedule.source && <View style={styles.sourceNote}><Text style={styles.sourceLabel}>数据来源</Text><Text numberOfLines={1} style={styles.sourceValue}>{schedule.source}</Text></View>}
         </ScrollView>
       </SafeAreaView>
@@ -123,6 +132,8 @@ const styles = StyleSheet.create({
   syncPillText: { color: palette.inkSoft, fontSize: 10, fontWeight: '600' },
   syncDot: { width: 6, height: 6, borderRadius: 4, backgroundColor: '#2BC79D' },
   syncDotOffline: { backgroundColor: '#E8A74F' },
+  syncNotice: { marginTop: 16, paddingHorizontal: 13, paddingVertical: 11, borderWidth: 1, borderColor: palette.line, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.55)' },
+  syncNoticeText: { color: palette.muted, fontSize: 10, lineHeight: 15, textAlign: 'center' },
   heading: { marginTop: 23, marginBottom: 23 },
   overline: { color: '#5592A2', fontSize: 10, fontWeight: '700', letterSpacing: 1.5 },
   title: { marginTop: 10, color: palette.ink, fontSize: 40, lineHeight: 48, fontWeight: '500', letterSpacing: -1.5 },

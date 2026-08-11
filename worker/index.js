@@ -1,5 +1,7 @@
 const CATALOG_KEY = "library/catalog-v1.json";
 const SCHEDULE_KEY = "app/schedule-v1.json";
+const NTULEARN_SNAPSHOT_KEY = "app/ntulearn-v1.json";
+const NTULEARN_SYNC_STATUS_KEY = "app/ntulearn-sync-status-v1.json";
 const ALLOWED_COURSES = new Set(["EE6221", "EE6406", "EE6407", "EE6497"]);
 const ALLOWED_SHELVES = new Set(["Lectures", "Assignments", "Study aids", "Quiz", "Exams"]);
 
@@ -121,6 +123,61 @@ function requireBucket(env) {
   return env?.FILES && typeof env.FILES.get === "function" ? env.FILES : null;
 }
 
+function isIsoDate(value) {
+  return typeof value === "string" && value.length <= 40 && Number.isFinite(Date.parse(value));
+}
+
+function isNtuLearnUrl(value) {
+  if (typeof value !== "string" || value.length > 1000) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "ntulearn.ntu.edu.sg";
+  } catch {
+    return false;
+  }
+}
+
+function isNtuLearnSnapshot(value) {
+  if (!value || typeof value !== "object" || value.version !== 1 || !isIsoDate(value.collectedAt)) return false;
+  if (!Array.isArray(value.courses) || value.courses.length > 32 || !Array.isArray(value.items) || value.items.length > 1200) return false;
+  if (!value.courses.every((course) => course && typeof course === "object"
+    && typeof course.id === "string" && course.id.length > 0 && course.id.length <= 160
+    && /^[A-Z]{2,4}\d{4}[A-Z]?$/.test(course.code)
+    && typeof course.name === "string" && course.name.length > 0 && course.name.length <= 240)) return false;
+  const courseCodes = new Set(value.courses.map((course) => course.code));
+  return value.items.every((item) => item && typeof item === "object"
+    && typeof item.id === "string" && item.id.length > 0 && item.id.length <= 200
+    && courseCodes.has(item.courseCode)
+    && ["announcement", "material", "assignment"].includes(item.type)
+    && typeof item.title === "string" && item.title.length > 0 && item.title.length <= 300
+    && isNtuLearnUrl(item.url)
+    && (item.publishedAt === null || isIsoDate(item.publishedAt))
+    && (item.updatedAt === null || isIsoDate(item.updatedAt))
+    && (item.dueAt === null || isIsoDate(item.dueAt)));
+}
+
+function defaultNtuLearnStatus() {
+  return { state: "idle", requestedAt: null, startedAt: null, finishedAt: null, message: null };
+}
+
+async function readNtuLearnStatus(bucket) {
+  const object = await bucket.get(NTULEARN_SYNC_STATUS_KEY);
+  if (!object) return defaultNtuLearnStatus();
+  try {
+    const value = JSON.parse(await object.text());
+    return value && typeof value.state === "string" ? value : defaultNtuLearnStatus();
+  } catch {
+    return defaultNtuLearnStatus();
+  }
+}
+
+async function writeNtuLearnStatus(bucket, status) {
+  await bucket.put(NTULEARN_SYNC_STATUS_KEY, JSON.stringify(status), {
+    httpMetadata: { contentType: "application/json", cacheControl: "private, no-store" },
+    customMetadata: { purpose: "course-atlas-ntulearn-sync-status" },
+  });
+}
+
 function isSchedule(value) {
   if (!value || typeof value !== "object" || value.version !== 1 || value.timezone !== "Asia/Singapore") return false;
   if (typeof value.academicYear !== "string" || value.academicYear.length > 32) return false;
@@ -188,6 +245,97 @@ async function updateSchedule(request, env) {
     customMetadata: { purpose: "course-atlas-schedule", version: String(schedule.version) },
   });
   return json({ ok: true, updatedAt: schedule.updatedAt, courses: schedule.courses.length, exceptions: schedule.exceptions.length });
+}
+
+async function readNtuLearnSnapshot(bucket) {
+  const object = await bucket.get(NTULEARN_SNAPSHOT_KEY);
+  if (!object) return { version: 1, collectedAt: null, courses: [], items: [] };
+  try {
+    const value = JSON.parse(await object.text());
+    return isNtuLearnSnapshot(value) ? value : { version: 1, collectedAt: null, courses: [], items: [] };
+  } catch {
+    return { version: 1, collectedAt: null, courses: [], items: [] };
+  }
+}
+
+async function updateNtuLearnSnapshot(request, env) {
+  const bucket = requireBucket(env);
+  if (!bucket) return json({ error: "NTULearn storage unavailable" }, 503);
+  if (!env?.UPLOAD_TOKEN || !safeEqual(request.headers.get("x-upload-token"), env.UPLOAD_TOKEN)) return json({ error: "Unauthorized" }, 401);
+  if (request.headers.get("content-type")?.split(";")[0] !== "application/json") return json({ error: "Only application/json is accepted" }, 415);
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > 1024 * 1024) return json({ error: "NTULearn payload is too large" }, 413);
+  let parsed;
+  try {
+    const text = await request.text();
+    if (!text || text.length > 1024 * 1024) return json({ error: "NTULearn payload is empty or too large" }, 413);
+    parsed = JSON.parse(text);
+  } catch {
+    return json({ error: "NTULearn JSON is invalid" }, 400);
+  }
+  if (!isNtuLearnSnapshot(parsed)) return json({ error: "NTULearn schema is invalid" }, 400);
+  await bucket.put(NTULEARN_SNAPSHOT_KEY, JSON.stringify(parsed), {
+    httpMetadata: { contentType: "application/json", cacheControl: "private, no-store" },
+    customMetadata: { purpose: "course-atlas-ntulearn-snapshot", version: String(parsed.version) },
+  });
+  const status = {
+    state: "success",
+    requestedAt: (await readNtuLearnStatus(bucket)).requestedAt,
+    startedAt: null,
+    finishedAt: new Date().toISOString(),
+    message: `已同步 ${parsed.courses.length} 门课程、${parsed.items.length} 条更新`,
+  };
+  await writeNtuLearnStatus(bucket, status);
+  return json({ ok: true, collectedAt: parsed.collectedAt, courses: parsed.courses.length, items: parsed.items.length });
+}
+
+async function updateNtuLearnStatus(request, env) {
+  const bucket = requireBucket(env);
+  if (!bucket) return json({ error: "NTULearn storage unavailable" }, 503);
+  if (!env?.UPLOAD_TOKEN || !safeEqual(request.headers.get("x-upload-token"), env.UPLOAD_TOKEN)) return json({ error: "Unauthorized" }, 401);
+  let parsed;
+  try { parsed = await request.json(); } catch { return json({ error: "Status JSON is invalid" }, 400); }
+  if (!parsed || !["idle", "queued", "running", "login_required", "error"].includes(parsed.state)) return json({ error: "Status schema is invalid" }, 400);
+  const previous = await readNtuLearnStatus(bucket);
+  const status = {
+    state: parsed.state,
+    requestedAt: previous.requestedAt,
+    startedAt: parsed.state === "running" ? new Date().toISOString() : previous.startedAt,
+    finishedAt: ["login_required", "error"].includes(parsed.state) ? new Date().toISOString() : null,
+    message: typeof parsed.message === "string" ? parsed.message.slice(0, 240) : null,
+    loginUrl: parsed.state === "login_required" && isNtuLearnUrl(parsed.loginUrl) ? parsed.loginUrl : undefined,
+  };
+  await writeNtuLearnStatus(bucket, status);
+  return json({ ok: true, status });
+}
+
+async function triggerNtuLearnRefresh(env) {
+  const response = await fetch(`${env.NTULEARN_COLLECTOR_URL.replace(/\/$/, "")}/refresh`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.NTULEARN_COLLECTOR_TOKEN}`, Accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`Collector rejected refresh (${response.status})`);
+}
+
+async function requestNtuLearnRefresh(env, ctx) {
+  const bucket = requireBucket(env);
+  if (!bucket) return json({ error: "NTULearn storage unavailable" }, 503);
+  if (!env?.NTULEARN_COLLECTOR_URL || !env?.NTULEARN_COLLECTOR_TOKEN) return json({ error: "NTULearn collector has not been connected" }, 503);
+  const previous = await readNtuLearnStatus(bucket);
+  const lastRequest = previous.requestedAt ? Date.parse(previous.requestedAt) : 0;
+  const cooldownMs = 30 * 60 * 1000;
+  if (["queued", "running"].includes(previous.state)) return json({ accepted: true, status: previous }, 202);
+  if (Number.isFinite(lastRequest) && Date.now() - lastRequest < cooldownMs) {
+    return json({ accepted: false, retryAfter: Math.ceil((cooldownMs - (Date.now() - lastRequest)) / 1000), status: previous }, 429);
+  }
+  const status = { state: "queued", requestedAt: new Date().toISOString(), startedAt: null, finishedAt: null, message: "同步请求已发送" };
+  await writeNtuLearnStatus(bucket, status);
+  const task = triggerNtuLearnRefresh(env).catch(async (error) => {
+    await writeNtuLearnStatus(bucket, { ...status, state: "error", finishedAt: new Date().toISOString(), message: error instanceof Error ? error.message.slice(0, 240) : "Collector request failed" });
+  });
+  if (ctx?.waitUntil) ctx.waitUntil(task);
+  else await task;
+  return json({ accepted: true, status }, 202);
 }
 
 async function readCatalog(bucket) {
@@ -394,7 +542,7 @@ async function uploadFromSync(request, env, url) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const owner = isOwner(request, env);
 
@@ -413,9 +561,22 @@ export default {
       const schedule = await readSchedule(bucket);
       return schedule ? publicJson(schedule) : json({ error: "Schedule has not been initialized" }, 503);
     }
+    if (url.pathname === "/api/ntulearn" && request.method === "GET") {
+      const bucket = requireBucket(env);
+      if (!bucket) return json({ error: "NTULearn storage unavailable" }, 503);
+      return publicJson(await readNtuLearnSnapshot(bucket));
+    }
+    if (url.pathname === "/api/ntulearn/status" && request.method === "GET") {
+      const bucket = requireBucket(env);
+      if (!bucket) return json({ error: "NTULearn storage unavailable" }, 503);
+      return json(await readNtuLearnStatus(bucket));
+    }
+    if (url.pathname === "/api/ntulearn/refresh" && request.method === "POST") return requestNtuLearnRefresh(env, ctx);
     if (url.pathname === "/api/upload" && request.method === "POST") return uploadFromBrowser(request, env, url);
     if (url.pathname === "/api/admin/materials" && request.method === "POST") return uploadFromSync(request, env, url);
     if (url.pathname === "/api/admin/schedule" && request.method === "PUT") return updateSchedule(request, env);
+    if (url.pathname === "/api/admin/ntulearn" && request.method === "PUT") return updateNtuLearnSnapshot(request, env);
+    if (url.pathname === "/api/admin/ntulearn/status" && request.method === "PUT") return updateNtuLearnStatus(request, env);
 
     const confirmMatch = /^\/api\/materials\/([a-z0-9-]{16,96})\/confirm$/.exec(url.pathname);
     if (confirmMatch && request.method === "POST") return confirmMaterial(request, env, confirmMatch[1]);

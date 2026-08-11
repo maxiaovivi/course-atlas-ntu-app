@@ -17,6 +17,9 @@ The backend timetable can be changed independently with `data/schedule.json` and
 ## Release policy
 
 - Content changes: update the Sites schedule endpoint; no app release is needed.
+- NTULearn refresh: the app calls the public, rate-limited Sites trigger. Sites
+  invokes the private Browser Run collector and stores only sanitized metadata;
+  the APK contains no collector token or NTU login state.
 - JavaScript, styling, and assets: publish to `staging`, verify on the Redmi K90 Pro Max, then promote the exact commit to `production` with EAS Update.
 - Native dependency or permission changes: increment the app version and build a new signed APK/AAB.
 
