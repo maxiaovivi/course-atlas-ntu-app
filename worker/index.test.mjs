@@ -116,6 +116,8 @@ test("NTULearn snapshots accept sanitized metadata and reject non-NTU URLs", asy
 
 test("NTULearn refresh waits for one private collector run and enforces cooldown", async () => {
   const bucket = new MemoryBucket();
+  const idle = await worker.fetch(new Request("https://example.test/api/ntulearn/status"), { FILES: bucket });
+  assert.equal((await idle.json()).message, null);
   const calls = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {

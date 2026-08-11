@@ -284,7 +284,7 @@ function publicNtuLearnStatus(status) {
     requestedAt: status.requestedAt ?? null,
     startedAt: status.startedAt ?? null,
     finishedAt: status.finishedAt ?? null,
-    message: messages[status.state] ?? messages.error,
+    message: Object.prototype.hasOwnProperty.call(messages, status.state) ? messages[status.state] : messages.error,
   };
 }
 
