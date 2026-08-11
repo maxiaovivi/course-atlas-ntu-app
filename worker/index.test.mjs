@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import worker from "./index.js";
+import worker, { DEFAULT_SCHEDULE } from "./index.js";
 
 class MemoryBucket {
   objects = new Map();
@@ -16,6 +16,20 @@ class MemoryBucket {
     this.objects.set(key, typeof value === "string" ? value : new TextDecoder().decode(value));
   }
 }
+
+test("an empty schedule bucket is initialized from the reviewed repository data", async () => {
+  const bucket = new MemoryBucket();
+  const source = JSON.parse(await readFile(new URL("../data/schedule.json", import.meta.url), "utf8"));
+  assert.deepEqual(DEFAULT_SCHEDULE, source);
+
+  const response = await worker.fetch(new Request("https://example.test/api/schedule"), { FILES: bucket });
+  assert.equal(response.status, 200);
+  const schedule = await response.json();
+  assert.equal(schedule.courses.length, 4);
+  assert.equal(schedule.exceptions.length, 1);
+  assert.notEqual(schedule.updatedAt, source.updatedAt);
+  assert.ok(bucket.objects.has("app/schedule-v1.json"));
+});
 
 test("schedule is updated in storage and then served publicly", async () => {
   const bucket = new MemoryBucket();

@@ -3,6 +3,90 @@ const SCHEDULE_KEY = "app/schedule-v1.json";
 const ALLOWED_COURSES = new Set(["EE6221", "EE6406", "EE6407", "EE6497"]);
 const ALLOWED_SHELVES = new Set(["Lectures", "Assignments", "Study aids", "Quiz", "Exams"]);
 
+export const DEFAULT_SCHEDULE = {
+  version: 1,
+  academicYear: "AY2026-27",
+  semester: 1,
+  timezone: "Asia/Singapore",
+  updatedAt: "2026-08-11T00:00:00+08:00",
+  source: "AY2026-27 S1 CCA Student Timetable V2",
+  courses: [
+    {
+      code: "EE6497",
+      name: "Pattern Recognition & Deep Learning",
+      zh: "模式识别与深度学习",
+      weekday: 1,
+      dayLabel: "周一",
+      start: "19:00",
+      end: "22:00",
+      section: null,
+      category: "General",
+      location: "待公布",
+      locationStatus: "pending",
+      locationSource: "GSCRS / NTULearn",
+      note: "学院课表备注时间为 19:00–22:00。",
+    },
+    {
+      code: "EE6407",
+      name: "Genetic Algorithms & Machine Learning",
+      zh: "遗传算法与机器学习",
+      weekday: 2,
+      dayLabel: "周二",
+      start: "18:30",
+      end: "21:30",
+      section: "Group A",
+      category: "Specialized",
+      location: "待公布",
+      locationStatus: "pending",
+      locationSource: "GSCRS / NTULearn",
+      note: "已按晚间 Group A 排列；Group B 为周二 09:30–12:30。",
+    },
+    {
+      code: "EE6221",
+      name: "Robotics & Intelligent Sensors",
+      zh: "机器人与智能传感",
+      weekday: 3,
+      dayLabel: "周三",
+      start: "18:30",
+      end: "21:30",
+      section: null,
+      category: "Specialized",
+      location: "待公布",
+      locationStatus: "pending",
+      locationSource: "GSCRS / NTULearn",
+      note: null,
+    },
+    {
+      code: "EE6406",
+      name: "Analytic & Ensemble Machine Learning",
+      zh: "分析与集成学习",
+      weekday: 4,
+      dayLabel: "周四",
+      start: "18:30",
+      end: "21:30",
+      section: null,
+      category: "General",
+      location: "待公布",
+      locationStatus: "pending",
+      locationSource: "GSCRS / NTULearn",
+      note: null,
+    },
+  ],
+  exceptions: [
+    {
+      id: "ee6497-2026-08-11-makeup",
+      courseCode: "EE6497",
+      date: "2026-08-11",
+      start: "13:00",
+      end: "16:00",
+      label: "Week 1 补课",
+      location: "Microsoft Teams · 在线",
+      note: "替代 8 月 10 日因公共假期取消的首次面授课。",
+      replacesDate: "2026-08-10",
+    },
+  ],
+};
+
 function parseRange(value, size) {
   const match = /^bytes=(\d*)-(\d*)$/.exec(value || "");
   if (!match) return null;
@@ -66,7 +150,14 @@ function isSchedule(value) {
 
 async function readSchedule(bucket) {
   const object = await bucket.get(SCHEDULE_KEY);
-  if (!object) return null;
+  if (!object) {
+    const schedule = { ...DEFAULT_SCHEDULE, updatedAt: new Date().toISOString() };
+    await bucket.put(SCHEDULE_KEY, JSON.stringify(schedule), {
+      httpMetadata: { contentType: "application/json", cacheControl: "public, max-age=60" },
+      customMetadata: { purpose: "course-atlas-schedule", version: String(schedule.version) },
+    });
+    return schedule;
+  }
   try {
     const parsed = JSON.parse(await object.text());
     return isSchedule(parsed) ? parsed : null;
