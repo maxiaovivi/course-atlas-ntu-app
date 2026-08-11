@@ -318,19 +318,17 @@ async function runSync(env: Env): Promise<SyncStatus> {
 async function startLogin(env: Env) {
   const { sessionId } = await acquire(env.BROWSER, { keep_alive: 600_000 });
   const browser = await connect(env.BROWSER, sessionId);
-  try {
-    const context = browser.contexts()[0] || await browser.newContext();
-    const page = context.pages()[0] || await context.newPage();
-    await page.goto(`${NTULEARN_ORIGIN}/ultra/course`, { waitUntil: "domcontentloaded", timeout: 60_000 });
-    const cdp = await context.newCDPSession(page);
-    const live = await cdp.send("Cloudflare.getLiveView", { mode: "tab", expiresInMs: 15 * 60 * 1000 }) as { devtoolsFrontendUrl: string };
-    await env.STATE.put(LOGIN_SESSION_KEY, sessionId, { expirationTtl: 15 * 60 });
-    return live.devtoolsFrontendUrl;
-  } finally {
-    // A browser obtained with connect() disconnects here but remains alive for
-    // the short human login window.
-    await browser.close().catch(() => undefined);
-  }
+  const context = browser.contexts()[0] || await browser.newContext();
+  const page = context.pages()[0] || await context.newPage();
+  await page.goto(`${NTULEARN_ORIGIN}/ultra/course`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  const cdp = await context.newCDPSession(page);
+  const live = await cdp.send("Cloudflare.getLiveView", { mode: "tab", expiresInMs: 15 * 60 * 1000 }) as { devtoolsFrontendUrl: string };
+  await env.STATE.put(LOGIN_SESSION_KEY, sessionId, { expirationTtl: 15 * 60 });
+  // Do not call browser.close() here. In the current Cloudflare Playwright CDP
+  // transport it closes the persistent target backing Live View. Request
+  // teardown releases this Worker connection while keep_alive preserves the
+  // remote session for the human login window.
+  return live.devtoolsFrontendUrl;
 }
 
 async function finishLogin(env: Env) {

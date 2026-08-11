@@ -26,8 +26,8 @@ or announcement bodies. `/refresh`, `/status`, and `/login/*` require
 There is no cron trigger. `POST /refresh` keeps that request open, performs one
 bounded sync, closes the launched browser, and returns the final `status`; it
 does not delegate the work to `waitUntil`. The initial smoke test targets
-EE6497 and at most ten announcement rows. The Live View session is disconnected
-while the owner logs in, then explicitly closed after `/login/finish` saves the
-encrypted storage state. A failed or expired SSO session becomes
+EE6497 and at most ten announcement rows. `/login/start` leaves the persistent
+Live View target open for the owner; `/login/finish` explicitly closes it after
+saving the encrypted storage state. A failed or expired SSO session becomes
 `login_required`; the collector never attempts to submit forms, launch LTI
 tools, or mutate course progress.
