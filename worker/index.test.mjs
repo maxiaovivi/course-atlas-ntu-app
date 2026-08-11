@@ -73,62 +73,67 @@ test("schedule update rejects missing credentials and invalid data", async () =>
   assert.equal(bucket.objects.size, 0);
 });
 
+const TEST_FEED_ID = "a".repeat(32);
+const TEST_FEED_URL = `https://ntulearn.ntu.edu.sg/webapps/calendar/calendarFeed/${TEST_FEED_ID}/learn.ics`;
+
 const SAMPLE_ICS = `BEGIN:VCALENDAR\r
 VERSION:2.0\r
-PRODID:-//Course Atlas test//EN\r
+PRODID:-//Course Atlas fictional fixture//EN\r
 BEGIN:VEVENT\r
-UID:private-student@example.test\r
+UID:fixture-001@example.invalid\r
 DTSTART:20260812T100000Z\r
 DTEND:20260812T110000Z\r
-SUMMARY:EE6221 Assignment\\, 1 due\r
-DESCRIPTION:Secret description with https://meet.example.test and passcode: 123456\r
+SUMMARY:Fictional EE6221 assignment\\, 1 due\r
+DESCRIPTION:FICTIONAL_DESCRIPTION_NOT_EXPORTED\r
+URL:https://event.example.invalid/not-exported\r
 END:VEVENT\r
 BEGIN:VEVENT\r
-UID:folded@example.test\r
+UID:fixture-002@example.invalid\r
 DTSTART;TZID=Asia/Singapore:20260813T183000\r
 DTEND;TZID=Asia/Singapore:20260813T193000\r
-SUMMARY:Quiz 1 for Analytic & Ensemble Machine\r
+SUMMARY:Fictional quiz for Analytic & Ensemble Machine\r
  Learning\r
 END:VEVENT\r
 BEGIN:VEVENT\r
-UID:all-day@example.test\r
+UID:fixture-003@example.invalid\r
 DTSTART;VALUE=DATE:20260814\r
-SUMMARY:EE6497 exam\r
+SUMMARY:Fictional EE6497 exam\r
 END:VEVENT\r
 BEGIN:VEVENT\r
-UID:other@example.test\r
+UID:fixture-004@example.invalid\r
 DTSTART:20260815T100000Z\r
-SUMMARY:Unrelated personal calendar event\r
+SUMMARY:Fictional personal reminder\r
 END:VEVENT\r
 BEGIN:VEVENT\r
-UID:recurring@example.test\r
+UID:fixture-recurring@example.invalid\r
 DTSTART:20260816T100000Z\r
 RRULE:FREQ=WEEKLY;COUNT=4\r
-SUMMARY:EE6407 recurring lecture\r
+SUMMARY:Fictional EE6407 recurring lecture\r
 END:VEVENT\r
 END:VCALENDAR\r
 `;
 
-test("NTULearn calendar parsing keeps only safe allowlisted events", async () => {
+test("NTULearn calendar parsing keeps exact fictional summaries without private ICS fields", async () => {
   const parsed = await parseNtuLearnCalendar(SAMPLE_ICS, Date.parse("2026-08-11T00:00:00Z"));
   assert.equal(parsed.totalEvents, 5);
   assert.equal(parsed.ignoredRecurring, 1);
-  assert.equal(parsed.events.length, 3);
-  assert.deepEqual(parsed.events.map((event) => event.courseCode), ["EE6221", "EE6406", "EE6497"]);
-  assert.equal(parsed.events[0].title, "EE6221 Assignment, 1 due");
+  assert.equal(parsed.events.length, 4);
+  assert.deepEqual(parsed.events.map((event) => event.courseCode), ["EE6221", "EE6406", "EE6497", "NTU"]);
+  assert.equal(parsed.events[0].title, "Fictional EE6221 assignment, 1 due");
   assert.equal(parsed.events[1].start, "2026-08-13T10:30:00.000Z");
   assert.equal(parsed.events[2].allDay, true);
+  assert.equal(parsed.events[3].title, "Fictional personal reminder");
   const publicText = JSON.stringify(parsed.events);
-  assert.doesNotMatch(publicText, /private-student|Secret description|meet\.example|123456|recurring@example|Unrelated personal/);
+  assert.doesNotMatch(publicText, /fixture-001|FICTIONAL_DESCRIPTION_NOT_EXPORTED|event\.example\.invalid|fixture-recurring/);
 });
 
-test("a single unclassified NTULearn event is reduced to a generic private-safe item", async () => {
-  const calendar = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:private-student@example.test\nDTSTART:20260815T100000Z\nSUMMARY:Unrelated personal calendar event\nDESCRIPTION:Secret details\nEND:VEVENT\nEND:VCALENDAR`;
+test("an unclassified NTULearn event keeps its exact fictional summary", async () => {
+  const calendar = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:fixture-single@example.invalid\nDTSTART:20260815T100000Z\nSUMMARY:Fictional reminder https://example.invalid passcode: fixture-only\nDESCRIPTION:FICTIONAL_DESCRIPTION_NOT_EXPORTED\nEND:VEVENT\nEND:VCALENDAR`;
   const parsed = await parseNtuLearnCalendar(calendar, Date.parse("2026-08-11T00:00:00Z"));
   assert.equal(parsed.events.length, 1);
   assert.equal(parsed.events[0].courseCode, "NTU");
-  assert.equal(parsed.events[0].title, "NTULearn 日历事项");
-  assert.doesNotMatch(JSON.stringify(parsed.events), /private-student|Unrelated personal|Secret details/);
+  assert.equal(parsed.events[0].title, "Fictional reminder https://example.invalid passcode: fixture-only");
+  assert.doesNotMatch(JSON.stringify(parsed.events), /fixture-single|FICTIONAL_DESCRIPTION_NOT_EXPORTED/);
 });
 
 test("NTULearn calendar parser rejects malformed input", async () => {
@@ -136,37 +141,30 @@ test("NTULearn calendar parser rejects malformed input", async () => {
   await assert.rejects(() => parseNtuLearnCalendar("BEGIN:VCALENDAR\nVERSION:1.0\nEND:VCALENDAR"), /invalid_calendar/);
 });
 
-test("NTULearn calendar parser recognizes the verified internal course id", async () => {
-  const calendar = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:opaque\nDTSTART:20260812T100000Z\nSUMMARY:Make-up lecture\nURL:https://ntulearn.ntu.edu.sg/ultra/courses/_2706629_1/outline\nEND:VEVENT\nEND:VCALENDAR`;
-  const parsed = await parseNtuLearnCalendar(calendar, Date.parse("2026-08-11T00:00:00Z"));
-  assert.equal(parsed.events.length, 1);
-  assert.equal(parsed.events[0].courseCode, "EE6497");
-  assert.doesNotMatch(JSON.stringify(parsed.events), /2706629|\/outline/);
-});
-
 test("calendar parsing rejects invalid dates and unsupported timezones", async () => {
-  const invalidDate = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nDTSTART:20260231T100000Z\nSUMMARY:EE6221 invalid\nEND:VEVENT\nEND:VCALENDAR`;
-  const unsupportedZone = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nDTSTART;TZID=America/New_York:20260815T100000\nSUMMARY:EE6221 wrong zone\nEND:VEVENT\nEND:VCALENDAR`;
+  const invalidDate = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nDTSTART:20260231T100000Z\nSUMMARY:Fictional EE6221 invalid date\nEND:VEVENT\nEND:VCALENDAR`;
+  const unsupportedZone = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nDTSTART;TZID=America/New_York:20260815T100000\nSUMMARY:Fictional EE6221 unsupported timezone\nEND:VEVENT\nEND:VCALENDAR`;
   assert.equal((await parseNtuLearnCalendar(invalidDate, Date.parse("2026-08-11T00:00:00Z"))).events.length, 0);
   assert.equal((await parseNtuLearnCalendar(unsupportedZone, Date.parse("2026-08-11T00:00:00Z"))).events.length, 0);
 });
 
 test("calendar deadlines prefer DUE while ordinary exams remain events", async () => {
-  const calendar = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:due\nDTSTART;TZID=Asia/Singapore:20260815T090000\nDUE;TZID=Asia/Singapore:20260815T235900\nSUMMARY:EE6221 assignment due\nEND:VEVENT\nBEGIN:VEVENT\nUID:exam\nDTSTART;VALUE=DATE:20260816\nSUMMARY:EE6406 exam\nEND:VEVENT\nEND:VCALENDAR`;
+  const calendar = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:fixture-due@example.invalid\nDTSTART;TZID=Asia/Singapore:20260815T090000\nDUE;TZID=Asia/Singapore:20260815T235900\nSUMMARY:Fictional EE6221 assignment due\nEND:VEVENT\nBEGIN:VEVENT\nUID:fixture-exam@example.invalid\nDTSTART;VALUE=DATE:20260816\nSUMMARY:Fictional EE6406 exam\nEND:VEVENT\nEND:VCALENDAR`;
   const parsed = await parseNtuLearnCalendar(calendar, Date.parse("2026-08-11T00:00:00Z"));
   assert.equal(parsed.events[0].kind, "deadline");
   assert.equal(parsed.events[0].start, "2026-08-15T15:59:00.000Z");
   assert.equal(parsed.events[1].kind, "event");
 });
 
-test("private description text cannot classify an unrelated event as a course", async () => {
-  const calendar = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:private\nDTSTART:20260815T100000Z\nSUMMARY:Private appointment\nDESCRIPTION:Review EE6221 later\nEND:VEVENT\nBEGIN:VEVENT\nUID:known\nDTSTART:20260816T100000Z\nSUMMARY:EE6406 lecture\nEND:VEVENT\nEND:VCALENDAR`;
+test("description text cannot classify an unrelated event as a course", async () => {
+  const calendar = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:fixture-unclassified@example.invalid\nDTSTART:20260815T100000Z\nSUMMARY:Fictional unclassified appointment\nDESCRIPTION:Fictional note mentioning EE6221\nEND:VEVENT\nBEGIN:VEVENT\nUID:fixture-known@example.invalid\nDTSTART:20260816T100000Z\nSUMMARY:Fictional EE6406 lecture\nEND:VEVENT\nEND:VCALENDAR`;
   const parsed = await parseNtuLearnCalendar(calendar, Date.parse("2026-08-11T00:00:00Z"));
-  assert.deepEqual(parsed.events.map((event) => event.courseCode), ["EE6406"]);
-  assert.doesNotMatch(JSON.stringify(parsed.events), /Private appointment|private/);
+  assert.deepEqual(parsed.events.map((event) => event.courseCode), ["NTU", "EE6406"]);
+  assert.equal(parsed.events[0].title, "Fictional unclassified appointment");
+  assert.doesNotMatch(JSON.stringify(parsed.events), /fixture-unclassified|Fictional note mentioning/);
 });
 
-test("Sites refresh stores a safe snapshot and uses the success cooldown", async () => {
+test("Sites refresh stores the runtime snapshot and uses the success cooldown", async () => {
   const bucket = new MemoryBucket();
   const originalFetch = globalThis.fetch;
   let calls = 0;
@@ -176,14 +174,14 @@ test("Sites refresh stores a safe snapshot and uses the success cooldown", async
   };
   const env = {
     FILES: bucket,
-    NTULEARN_ICAL_URL: "https://ntulearn.ntu.edu.sg/webapps/calendar/calendarFeed/0123456789abcdef0123456789abcdef/learn.ics",
+    NTULEARN_ICAL_URL: TEST_FEED_URL,
   };
   try {
     const first = await worker.fetch(new Request("https://example.test/api/calendar/refresh", { method: "POST" }), env);
     assert.equal(first.status, 200);
     const firstBody = await first.json();
     assert.equal(firstBody.cached, false);
-    assert.equal(firstBody.calendar.events.length, 3);
+    assert.equal(firstBody.calendar.events.length, 4);
     assert.equal(calls, 1);
 
     const second = await worker.fetch(new Request("https://example.test/api/calendar/refresh", { method: "POST" }), env);
@@ -194,7 +192,9 @@ test("Sites refresh stores a safe snapshot and uses the success cooldown", async
 
     const stored = bucket.objects.get("app/ntulearn-calendar-v1.json");
     assert.ok(stored);
-    assert.doesNotMatch(stored, /0123456789abcdef|private-student|Secret description|meet\.example|123456/);
+    assert.match(stored, /Fictional personal reminder/);
+    assert.doesNotMatch(stored, /fixture-001|FICTIONAL_DESCRIPTION_NOT_EXPORTED|event\.example\.invalid/);
+    assert.equal(stored.includes(TEST_FEED_ID), false);
     const read = await worker.fetch(new Request("https://example.test/api/calendar"), env);
     assert.equal(read.status, 200);
     assert.equal((await read.json()).status.state, "success");
@@ -211,7 +211,7 @@ test("concurrent calendar refreshes share one fetch and release the in-flight op
     await new Promise((resolve) => setTimeout(resolve, 10));
     return new Response(SAMPLE_ICS, { status: 200, headers: { "content-type": "text/calendar" } });
   };
-  const feed = "https://ntulearn.ntu.edu.sg/webapps/calendar/calendarFeed/0123456789abcdef0123456789abcdef/learn.ics";
+  const feed = TEST_FEED_URL;
   try {
     const firstBucket = new MemoryBucket();
     const request = () => worker.fetch(new Request("https://example.test/api/calendar/refresh", { method: "POST" }), { FILES: firstBucket, NTULEARN_ICAL_URL: feed });
@@ -248,7 +248,7 @@ test("calendar refresh rejects unsafe configuration and cross-origin callers bef
       headers: { Origin: "https://evil.example" },
     }), {
       FILES: bucket,
-      NTULEARN_ICAL_URL: "https://ntulearn.ntu.edu.sg/webapps/calendar/calendarFeed/0123456789abcdef0123456789abcdef/learn.ics",
+      NTULEARN_ICAL_URL: TEST_FEED_URL,
     });
     assert.equal(crossOrigin.status, 403);
     assert.equal(calls, 0);
@@ -269,7 +269,7 @@ test("a failed refresh preserves the last successful calendar snapshot", async (
       method: "POST",
     }), {
       FILES: bucket,
-      NTULEARN_ICAL_URL: "https://ntulearn.ntu.edu.sg/webapps/calendar/calendarFeed/0123456789abcdef0123456789abcdef/learn.ics",
+      NTULEARN_ICAL_URL: TEST_FEED_URL,
     });
     assert.equal(response.status, 502);
     assert.equal(bucket.objects.get("app/ntulearn-calendar-v1.json"), JSON.stringify(snapshot));
@@ -286,9 +286,9 @@ function emptyCalendarFixture() {
     source: "NTULearn shared calendar",
     ignoredRecurring: 0,
     events: [{
-      id: "ee6221-0123456789abcdef0123",
+      id: "fixture-event-0000000001",
       courseCode: "EE6221",
-      title: "Test event",
+      title: "Fictional test event",
       start: "2026-08-12T10:00:00.000Z",
       end: null,
       allDay: false,

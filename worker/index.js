@@ -10,7 +10,6 @@ const CALENDAR_COURSE_ALIASES = {
   EE6407: ["genetic algorithms and machine learning"],
   EE6497: ["pattern recognition and deep learning"],
 };
-const CALENDAR_COURSE_IDS = { EE6497: ["27066291"] };
 const CALENDAR_COURSES = new Set([...ALLOWED_COURSES, "NTU"]);
 const MAX_ICAL_BYTES = 1024 * 1024;
 const MAX_ICAL_EVENTS = 2000;
@@ -303,10 +302,8 @@ function decodeCalendarText(value) {
     .normalize("NFKC");
 }
 
-function sanitizeCalendarTitle(value) {
+function normalizeCalendarTitle(value) {
   const cleaned = decodeCalendarText(value)
-    .replace(/https?:\/\/\S+/gi, "")
-    .replace(/\b(?:meeting\s*id|passcode|password)\s*[:#]?\s*[\w-]+/gi, "")
     .replace(/[\u0000-\u001f\u007f]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -323,20 +320,9 @@ function courseCodeForCalendarEvent(properties) {
     ...(properties.get("CATEGORIES") || []).map((item) => item.value),
   ].join(" "));
   const compact = searchable.replace(/\s+/g, "");
-  const trustedUrls = (properties.get("URL") || []).map((item) => {
-    try {
-      const url = new URL(item.value);
-      return url.protocol === "https:" && url.hostname === "ntulearn.ntu.edu.sg" ? normalizedCalendarSearch(`${url.pathname} ${url.search}`) : "";
-    } catch {
-      return "";
-    }
-  }).join(" ").replace(/\s+/g, "");
   const matches = new Set();
   for (const code of ALLOWED_COURSES) {
     if (compact.includes(code.toLowerCase())) matches.add(code);
-  }
-  for (const [code, ids] of Object.entries(CALENDAR_COURSE_IDS)) {
-    if (ids.some((id) => trustedUrls.includes(id))) matches.add(code);
   }
   for (const [code, aliases] of Object.entries(CALENDAR_COURSE_ALIASES)) {
     if (aliases.some((alias) => searchable.includes(alias) || compact.includes(alias.replace(/\s+/g, "")))) matches.add(code);
@@ -387,14 +373,12 @@ function calendarKind(title, properties) {
   return "event";
 }
 
-async function publicCalendarEvent(lines, nowMs, allowGeneric) {
+async function publicCalendarEvent(lines, nowMs) {
   const properties = calendarProperties(lines);
-  const identifiedCourse = courseCodeForCalendarEvent(properties);
-  if (!identifiedCourse && !allowGeneric) return { event: null, reason: "not_target" };
-  const courseCode = identifiedCourse || "NTU";
+  const courseCode = courseCodeForCalendarEvent(properties) || "NTU";
   if (properties.has("RRULE") || properties.has("RDATE") || properties.has("EXDATE")) return { event: null, reason: "recurring" };
-  const sanitizedTitle = sanitizeCalendarTitle(properties.get("SUMMARY")?.[0]?.value);
-  const kind = calendarKind(sanitizedTitle, properties);
+  const title = normalizeCalendarTitle(properties.get("SUMMARY")?.[0]?.value);
+  const kind = calendarKind(title, properties);
   const start = parseCalendarDate(kind === "deadline"
     ? properties.get("DUE")?.[0] || properties.get("DTSTART")?.[0]
     : properties.get("DTSTART")?.[0] || properties.get("DUE")?.[0]);
@@ -404,10 +388,7 @@ async function publicCalendarEvent(lines, nowMs, allowGeneric) {
     : properties.get("DTEND")?.[0] || properties.get("DUE")?.[0]);
   if (end && end.time < start.time) return { event: null, reason: "invalid_date" };
   if (start.time < nowMs - 30 * 24 * 60 * 60 * 1000 || start.time > nowMs + 370 * 24 * 60 * 60 * 1000) return { event: null, reason: "out_of_range" };
-  const title = identifiedCourse ? sanitizedTitle : kind === "deadline" ? "NTULearn 截止事项" : "NTULearn 日历事项";
-  const identity = identifiedCourse
-    ? `${courseCode}|${properties.get("UID")?.[0]?.value || ""}|${start.value}|${title}`
-    : `${courseCode}|${start.value}|${end?.value || ""}|${start.allDay}`;
+  const identity = `${courseCode}|${start.value}|${end?.value || ""}|${title}`;
   const digest = bytesToHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity))).slice(0, 20);
   return {
     reason: "kept",
@@ -440,10 +421,10 @@ export async function parseNtuLearnCalendar(text, nowMs = Date.now()) {
     } else if (current) current.push(line);
   }
   if (current) throw new Error("invalid_calendar");
-  const parsed = await Promise.all(blocks.map((block) => publicCalendarEvent(block, nowMs, blocks.length === 1)));
+  const parsed = await Promise.all(blocks.map((block) => publicCalendarEvent(block, nowMs)));
   const diagnostics = {
     totalEvents: blocks.length,
-    targetEvents: parsed.filter((item) => item.reason !== "not_target").length,
+    kept: parsed.filter((item) => item.reason === "kept").length,
     recurring: parsed.filter((item) => item.reason === "recurring").length,
     invalidDate: parsed.filter((item) => item.reason === "invalid_date").length,
     outOfRange: parsed.filter((item) => item.reason === "out_of_range").length,

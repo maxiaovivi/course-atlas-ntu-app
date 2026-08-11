@@ -10,7 +10,7 @@ The Android app is a single-user client for the public Course Atlas API.
 - `src/components`: reusable interaction and motion primitives.
 - `src/app`: Expo Router screens and composition only.
 
-The hosted Site remains the source of truth. `/api/schedule` reads the current timetable from R2, while `/api/calendar` reads the sanitized NTULearn calendar snapshot. The APK contains no real timetable, location, exception, notice, feed URL, or credential. After the first successful request, the app renders its AsyncStorage caches immediately; a failed request does not remove the last verified data.
+The hosted Site remains the source of truth. `/api/schedule` reads the current timetable from R2, while `/api/calendar` reads the runtime NTULearn calendar snapshot. The APK contains no real timetable, location, exception, notice, event title, feed URL, or credential. After the first successful request, the app renders its AsyncStorage caches immediately; a failed request does not remove the last verified data.
 
 The single top-right refresh control updates both the timetable snapshot and the NTULearn calendar. `POST /api/calendar/refresh` performs exactly one upstream calendar fetch inside Sites; ordinary app startup only reads the cached Site snapshot. The app shows at most six events from the next 14 days.
 

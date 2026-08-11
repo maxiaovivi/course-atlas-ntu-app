@@ -3,3 +3,12 @@ dist/
 node_modules/
 .DS_Store
 npm-debug.log*
+.env
+.env.*
+!.env.example
+*.ics
+*.har
+storage-state*.json
+storageState*.json
+browser-profile/
+playwright-profile/
