@@ -127,6 +127,14 @@ test("NTULearn calendar parser rejects malformed input", async () => {
   await assert.rejects(() => parseNtuLearnCalendar("BEGIN:VCALENDAR\nVERSION:1.0\nEND:VCALENDAR"), /invalid_calendar/);
 });
 
+test("NTULearn calendar parser recognizes the verified internal course id", async () => {
+  const calendar = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:opaque\nDTSTART:20260812T100000Z\nSUMMARY:Make-up lecture\nURL:https://ntulearn.ntu.edu.sg/ultra/courses/_2706629_1/outline\nEND:VEVENT\nEND:VCALENDAR`;
+  const parsed = await parseNtuLearnCalendar(calendar, Date.parse("2026-08-11T00:00:00Z"));
+  assert.equal(parsed.events.length, 1);
+  assert.equal(parsed.events[0].courseCode, "EE6497");
+  assert.doesNotMatch(JSON.stringify(parsed.events), /2706629|\/outline/);
+});
+
 test("Sites refresh stores a safe snapshot and uses the success cooldown", async () => {
   const bucket = new MemoryBucket();
   const originalFetch = globalThis.fetch;

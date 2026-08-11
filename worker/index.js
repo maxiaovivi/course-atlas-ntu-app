@@ -10,6 +10,7 @@ const CALENDAR_COURSE_ALIASES = {
   EE6407: ["genetic algorithms and machine learning"],
   EE6497: ["pattern recognition and deep learning"],
 };
+const CALENDAR_COURSE_IDS = { EE6497: ["27066291"] };
 const MAX_ICAL_BYTES = 1024 * 1024;
 const MAX_ICAL_EVENTS = 2000;
 const MAX_PUBLIC_EVENTS = 512;
@@ -319,6 +320,9 @@ function courseCodeForCalendarEvent(lines) {
   const compact = searchable.replace(/\s+/g, "");
   for (const code of ALLOWED_COURSES) {
     if (compact.includes(code.toLowerCase())) return code;
+  }
+  for (const [code, ids] of Object.entries(CALENDAR_COURSE_IDS)) {
+    if (ids.some((id) => compact.includes(id))) return code;
   }
   for (const [code, aliases] of Object.entries(CALENDAR_COURSE_ALIASES)) {
     if (aliases.some((alias) => searchable.includes(alias) || compact.includes(alias.replace(/\s+/g, "")))) return code;
