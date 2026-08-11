@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "知屿课表",
+    "slug": "course-atlas-ntu",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/course-atlas-icon.png",
+    "scheme": "courseatlasntu",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.maxiaovivi.courseatlasntu",
+      "versionCode": 1,
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/course-atlas-icon.png"
+      },
+      "predictiveBackGestureEnabled": true
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/course-atlas-icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#E6F9FD",
+          "image": "./assets/images/course-atlas-icon.png",
+          "imageWidth": 112
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
+  }
+}

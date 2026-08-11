@@ -1,4 +1,5 @@
 const CATALOG_KEY = "library/catalog-v1.json";
+const SCHEDULE_KEY = "app/schedule-v1.json";
 const ALLOWED_COURSES = new Set(["EE6221", "EE6406", "EE6407", "EE6497"]);
 const ALLOWED_SHELVES = new Set(["Lectures", "Assignments", "Study aids", "Quiz", "Exams"]);
 
@@ -36,6 +37,68 @@ function requireBucket(env) {
   return env?.FILES && typeof env.FILES.get === "function" ? env.FILES : null;
 }
 
+function isSchedule(value) {
+  if (!value || typeof value !== "object" || value.version !== 1 || value.timezone !== "Asia/Singapore") return false;
+  if (typeof value.academicYear !== "string" || value.academicYear.length > 32) return false;
+  if (!Number.isInteger(value.semester) || value.semester < 1 || value.semester > 3) return false;
+  if (typeof value.source !== "string" || !value.source || value.source.length > 240) return false;
+  if (!Array.isArray(value.courses) || value.courses.length > 32 || !Array.isArray(value.exceptions) || value.exceptions.length > 128) return false;
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const date = /^20\d{2}-[01]\d-[0-3]\d$/;
+  const text = (item, key, max = 240) => typeof item[key] === "string" && item[key].length > 0 && item[key].length <= max;
+  const nullableText = (item, key, max = 500) => item[key] === null || (typeof item[key] === "string" && item[key].length <= max);
+  if (!value.courses.every((course) => course && typeof course === "object"
+    && /^[A-Z]{2,4}\d{4}[A-Z]?$/.test(course.code)
+    && text(course, "name") && text(course, "zh")
+    && Number.isInteger(course.weekday) && course.weekday >= 0 && course.weekday <= 6
+    && text(course, "dayLabel", 8) && time.test(course.start) && time.test(course.end)
+    && nullableText(course, "section", 80) && text(course, "category", 80)
+    && text(course, "location") && ["confirmed", "pending"].includes(course.locationStatus)
+    && text(course, "locationSource") && nullableText(course, "note"))) return false;
+  const courseCodes = new Set(value.courses.map((course) => course.code));
+  return value.exceptions.every((exception) => exception && typeof exception === "object"
+    && /^[a-z0-9-]{8,120}$/.test(exception.id)
+    && courseCodes.has(exception.courseCode) && date.test(exception.date)
+    && time.test(exception.start) && time.test(exception.end)
+    && text(exception, "label", 120) && text(exception, "location") && text(exception, "note", 500)
+    && (exception.replacesDate === undefined || date.test(exception.replacesDate)));
+}
+
+async function readSchedule(bucket) {
+  const object = await bucket.get(SCHEDULE_KEY);
+  if (!object) return null;
+  try {
+    const parsed = JSON.parse(await object.text());
+    return isSchedule(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function updateSchedule(request, env) {
+  const bucket = requireBucket(env);
+  if (!bucket) return json({ error: "Schedule storage unavailable" }, 503);
+  if (!env?.UPLOAD_TOKEN || !safeEqual(request.headers.get("x-upload-token"), env.UPLOAD_TOKEN)) return json({ error: "Unauthorized" }, 401);
+  if (request.headers.get("content-type")?.split(";")[0] !== "application/json") return json({ error: "Only application/json is accepted" }, 415);
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > 128 * 1024) return json({ error: "Schedule payload is too large" }, 413);
+  let parsed;
+  try {
+    const text = await request.text();
+    if (!text || text.length > 128 * 1024) return json({ error: "Schedule payload is empty or too large" }, 413);
+    parsed = JSON.parse(text);
+  } catch {
+    return json({ error: "Schedule JSON is invalid" }, 400);
+  }
+  if (!isSchedule(parsed)) return json({ error: "Schedule schema is invalid" }, 400);
+  const schedule = { ...parsed, updatedAt: new Date().toISOString() };
+  await bucket.put(SCHEDULE_KEY, JSON.stringify(schedule), {
+    httpMetadata: { contentType: "application/json", cacheControl: "public, max-age=60" },
+    customMetadata: { purpose: "course-atlas-schedule", version: String(schedule.version) },
+  });
+  return json({ ok: true, updatedAt: schedule.updatedAt, courses: schedule.courses.length, exceptions: schedule.exceptions.length });
+}
+
 async function readCatalog(bucket) {
   const object = await bucket.get(CATALOG_KEY);
   if (!object) return { version: 1, updatedAt: null, materials: [] };
@@ -64,6 +127,16 @@ function publicMaterial(item, owner) {
 
 function json(data, status = 200, extraHeaders = {}) {
   return Response.json(data, { status, headers: { "Cache-Control": "private, no-store", ...extraHeaders } });
+}
+
+function publicJson(data) {
+  return Response.json(data, {
+    headers: {
+      "Cache-Control": "public, max-age=60, stale-while-revalidate=600",
+      "Access-Control-Allow-Origin": "*",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
 function bytesToHex(bytes) {
@@ -243,8 +316,15 @@ export default {
       const catalog = await readCatalog(bucket);
       return json({ materials: catalog.materials.map((item) => publicMaterial(item, owner)), updatedAt: catalog.updatedAt, storageAvailable: true });
     }
+    if (url.pathname === "/api/schedule" && request.method === "GET") {
+      const bucket = requireBucket(env);
+      if (!bucket) return json({ error: "Schedule storage unavailable" }, 503);
+      const schedule = await readSchedule(bucket);
+      return schedule ? publicJson(schedule) : json({ error: "Schedule has not been initialized" }, 503);
+    }
     if (url.pathname === "/api/upload" && request.method === "POST") return uploadFromBrowser(request, env, url);
     if (url.pathname === "/api/admin/materials" && request.method === "POST") return uploadFromSync(request, env, url);
+    if (url.pathname === "/api/admin/schedule" && request.method === "PUT") return updateSchedule(request, env);
 
     const confirmMatch = /^\/api\/materials\/([a-z0-9-]{16,96})\/confirm$/.exec(url.pathname);
     if (confirmMatch && request.method === "POST") return confirmMaterial(request, env, confirmMatch[1]);
