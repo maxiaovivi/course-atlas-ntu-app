@@ -19,9 +19,9 @@ function isStatus(value: unknown): value is NtuLearnSyncStatus {
   return ['idle', 'queued', 'running', 'success', 'login_required', 'error'].includes(status.state || '');
 }
 
-async function request(path: string, init?: RequestInit) {
+async function request(path: string, init?: RequestInit, timeoutMs = 6500) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 6500);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(`${API_BASE_URL}${path}`, {
       ...init,
@@ -41,7 +41,7 @@ export async function fetchNtuLearnStatus(): Promise<NtuLearnSyncStatus> {
 }
 
 export async function triggerNtuLearnRefresh(): Promise<NtuLearnSyncStatus> {
-  const response = await request('/api/ntulearn/refresh', { method: 'POST' });
+  const response = await request('/api/ntulearn/refresh', { method: 'POST' }, 60_000);
   const value: unknown = await response.json().catch(() => null);
   const status = value && typeof value === 'object' ? (value as { status?: unknown }).status : null;
   if ((response.ok || response.status === 429) && isStatus(status)) return status;

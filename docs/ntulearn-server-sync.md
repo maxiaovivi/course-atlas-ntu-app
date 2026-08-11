@@ -3,8 +3,9 @@
 Course Atlas uses two server components so the phone never depends on a Linux
 desktop:
 
-1. The existing Sites worker owns the public refresh endpoint, sync status,
-   sanitized feed, and R2 persistence.
+1. The existing Sites worker owns the public refresh endpoint, sanitized sync
+   status, an owner-only detailed feed, and R2 persistence. Anonymous reads see
+   counts and timestamps only.
 2. The private `collector/` Cloudflare Worker owns Browser Run, Playwright, the
    encrypted NTULearn storage state, and the callback secret.
 
@@ -19,11 +20,12 @@ cookies, OTPs, passwords, raw announcement bodies, student identifiers, meeting
 credentials, or course files. The Sites worker validates this boundary again
 before writing R2.
 
-Normal operation is a single press on **刷新 NTULearn**. When SSO expires, the
-collector reports `login_required`; an owner must complete NTU SSO/MFA through a
-short-lived Browser Run Live View and finalize the session. This exceptional
-login step cannot be automated safely.
+Normal operation is one request kept open by a single press on **刷新 NTULearn**;
+the response returns only after that one browser run finishes. When SSO expires,
+the collector reports `login_required`; an owner must complete NTU SSO/MFA
+through a short-lived Browser Run Live View and finalize the session. This
+exceptional login step cannot be automated safely.
 
-The cron exists but `AUTO_SYNC_ENABLED` defaults to `0`. Enable it only after a
-manual refresh has been verified against the production NTULearn account and
-the Sites callback.
+No cron is installed. Each explicit refresh creates one browser, reads a bounded
+snapshot, writes the result, and closes the browser. The first production smoke
+test is limited to one course and ten announcement rows.

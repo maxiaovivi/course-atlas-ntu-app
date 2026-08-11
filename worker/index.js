@@ -258,10 +258,40 @@ async function readNtuLearnSnapshot(bucket) {
   }
 }
 
+function publicNtuLearnSummary(snapshot) {
+  return {
+    version: snapshot.version,
+    collectedAt: snapshot.collectedAt,
+    courseCount: snapshot.courses.length,
+    itemCount: snapshot.items.length,
+  };
+}
+
+function publicNtuLearnStatus(status) {
+  const successCount = typeof status.message === "string"
+    ? /^已同步 (\d+) 门课程、(\d+) 条更新$/.exec(status.message)
+    : null;
+  const messages = {
+    idle: null,
+    queued: "同步请求已发送",
+    running: "正在读取 NTULearn",
+    success: successCount ? `已同步 ${successCount[1]} 门课程、${successCount[2]} 条更新` : "同步完成",
+    login_required: "需要重新登录 NTULearn",
+    error: "同步未完成，请稍后重试",
+  };
+  return {
+    state: status.state,
+    requestedAt: status.requestedAt ?? null,
+    startedAt: status.startedAt ?? null,
+    finishedAt: status.finishedAt ?? null,
+    message: messages[status.state] ?? messages.error,
+  };
+}
+
 async function updateNtuLearnSnapshot(request, env) {
   const bucket = requireBucket(env);
   if (!bucket) return json({ error: "NTULearn storage unavailable" }, 503);
-  if (!env?.UPLOAD_TOKEN || !safeEqual(request.headers.get("x-upload-token"), env.UPLOAD_TOKEN)) return json({ error: "Unauthorized" }, 401);
+  if (!env?.NTULEARN_UPLOAD_TOKEN || !safeEqual(request.headers.get("x-upload-token"), env.NTULEARN_UPLOAD_TOKEN)) return json({ error: "Unauthorized" }, 401);
   if (request.headers.get("content-type")?.split(";")[0] !== "application/json") return json({ error: "Only application/json is accepted" }, 415);
   const contentLength = Number(request.headers.get("content-length") || 0);
   if (contentLength > 1024 * 1024) return json({ error: "NTULearn payload is too large" }, 413);
@@ -292,7 +322,7 @@ async function updateNtuLearnSnapshot(request, env) {
 async function updateNtuLearnStatus(request, env) {
   const bucket = requireBucket(env);
   if (!bucket) return json({ error: "NTULearn storage unavailable" }, 503);
-  if (!env?.UPLOAD_TOKEN || !safeEqual(request.headers.get("x-upload-token"), env.UPLOAD_TOKEN)) return json({ error: "Unauthorized" }, 401);
+  if (!env?.NTULEARN_UPLOAD_TOKEN || !safeEqual(request.headers.get("x-upload-token"), env.NTULEARN_UPLOAD_TOKEN)) return json({ error: "Unauthorized" }, 401);
   let parsed;
   try { parsed = await request.json(); } catch { return json({ error: "Status JSON is invalid" }, 400); }
   if (!parsed || !["idle", "queued", "running", "login_required", "error"].includes(parsed.state)) return json({ error: "Status schema is invalid" }, 400);
@@ -314,10 +344,12 @@ async function triggerNtuLearnRefresh(env) {
     method: "POST",
     headers: { Authorization: `Bearer ${env.NTULEARN_COLLECTOR_TOKEN}`, Accept: "application/json" },
   });
+  const value = await response.json().catch(() => null);
   if (!response.ok) throw new Error(`Collector rejected refresh (${response.status})`);
+  return value && typeof value === "object" ? value.status : null;
 }
 
-async function requestNtuLearnRefresh(env, ctx) {
+async function requestNtuLearnRefresh(env) {
   const bucket = requireBucket(env);
   if (!bucket) return json({ error: "NTULearn storage unavailable" }, 503);
   if (!env?.NTULEARN_COLLECTOR_URL || !env?.NTULEARN_COLLECTOR_TOKEN) return json({ error: "NTULearn collector has not been connected" }, 503);
@@ -330,12 +362,19 @@ async function requestNtuLearnRefresh(env, ctx) {
   }
   const status = { state: "queued", requestedAt: new Date().toISOString(), startedAt: null, finishedAt: null, message: "同步请求已发送" };
   await writeNtuLearnStatus(bucket, status);
-  const task = triggerNtuLearnRefresh(env).catch(async (error) => {
-    await writeNtuLearnStatus(bucket, { ...status, state: "error", finishedAt: new Date().toISOString(), message: error instanceof Error ? error.message.slice(0, 240) : "Collector request failed" });
-  });
-  if (ctx?.waitUntil) ctx.waitUntil(task);
-  else await task;
-  return json({ accepted: true, status }, 202);
+  try {
+    const collectorStatus = await triggerNtuLearnRefresh(env);
+    const latest = await readNtuLearnStatus(bucket);
+    const finalStatus = latest.state === "queued" && collectorStatus && typeof collectorStatus.state === "string"
+      ? { ...status, ...collectorStatus }
+      : latest;
+    if (finalStatus !== latest) await writeNtuLearnStatus(bucket, finalStatus);
+    return json({ accepted: true, status: publicNtuLearnStatus(finalStatus) });
+  } catch {
+    const failed = { ...status, state: "error", finishedAt: new Date().toISOString(), message: "Collector request failed" };
+    await writeNtuLearnStatus(bucket, failed);
+    return json({ accepted: false, status: publicNtuLearnStatus(failed), error: "NTULearn sync failed" }, 502);
+  }
 }
 
 async function readCatalog(bucket) {
@@ -564,14 +603,15 @@ export default {
     if (url.pathname === "/api/ntulearn" && request.method === "GET") {
       const bucket = requireBucket(env);
       if (!bucket) return json({ error: "NTULearn storage unavailable" }, 503);
-      return publicJson(await readNtuLearnSnapshot(bucket));
+      const snapshot = await readNtuLearnSnapshot(bucket);
+      return json(owner ? snapshot : publicNtuLearnSummary(snapshot));
     }
     if (url.pathname === "/api/ntulearn/status" && request.method === "GET") {
       const bucket = requireBucket(env);
       if (!bucket) return json({ error: "NTULearn storage unavailable" }, 503);
-      return json(await readNtuLearnStatus(bucket));
+      return json(publicNtuLearnStatus(await readNtuLearnStatus(bucket)));
     }
-    if (url.pathname === "/api/ntulearn/refresh" && request.method === "POST") return requestNtuLearnRefresh(env, ctx);
+    if (url.pathname === "/api/ntulearn/refresh" && request.method === "POST") return requestNtuLearnRefresh(env);
     if (url.pathname === "/api/upload" && request.method === "POST") return uploadFromBrowser(request, env, url);
     if (url.pathname === "/api/admin/materials" && request.method === "POST") return uploadFromSync(request, env, url);
     if (url.pathname === "/api/admin/schedule" && request.method === "PUT") return updateSchedule(request, env);

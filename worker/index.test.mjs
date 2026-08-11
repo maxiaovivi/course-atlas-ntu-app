@@ -75,7 +75,7 @@ test("schedule update rejects missing credentials and invalid data", async () =>
 
 test("NTULearn snapshots accept sanitized metadata and reject non-NTU URLs", async () => {
   const bucket = new MemoryBucket();
-  const env = { FILES: bucket, UPLOAD_TOKEN: "test-only-token" };
+  const env = { FILES: bucket, NTULEARN_UPLOAD_TOKEN: "test-only-token", UPLOAD_OWNER_EMAIL: "owner@example.test" };
   const snapshot = {
     version: 1,
     collectedAt: "2026-08-11T08:00:00.000Z",
@@ -98,7 +98,11 @@ test("NTULearn snapshots accept sanitized metadata and reject non-NTU URLs", asy
   }), env);
   assert.equal(update.status, 200);
 
-  const read = await worker.fetch(new Request("https://example.test/api/ntulearn"), env);
+  const publicRead = await worker.fetch(new Request("https://example.test/api/ntulearn"), env);
+  assert.deepEqual(await publicRead.json(), { version: 1, collectedAt: snapshot.collectedAt, courseCount: 1, itemCount: 1 });
+  const read = await worker.fetch(new Request("https://example.test/api/ntulearn", {
+    headers: { "oai-authenticated-user-email": "owner@example.test" },
+  }), env);
   assert.deepEqual(await read.json(), snapshot);
 
   snapshot.items[0].url = "https://example.com/private";
@@ -110,24 +114,23 @@ test("NTULearn snapshots accept sanitized metadata and reject non-NTU URLs", asy
   assert.equal(rejected.status, 400);
 });
 
-test("NTULearn refresh is queued once and invokes the private collector", async () => {
+test("NTULearn refresh waits for one private collector run and enforces cooldown", async () => {
   const bucket = new MemoryBucket();
   const calls = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     calls.push({ url, authorization: init.headers.Authorization });
-    return Response.json({ accepted: true }, { status: 202 });
+    return Response.json({ status: { state: "success", message: "done", updatedAt: "2026-08-11T08:01:00.000Z" } });
   };
   try {
-    const tasks = [];
     const env = { FILES: bucket, NTULEARN_COLLECTOR_URL: "https://collector.example", NTULEARN_COLLECTOR_TOKEN: "collector-token" };
-    const first = await worker.fetch(new Request("https://example.test/api/ntulearn/refresh", { method: "POST" }), env, { waitUntil: (task) => tasks.push(task) });
-    assert.equal(first.status, 202);
-    await Promise.all(tasks);
+    const first = await worker.fetch(new Request("https://example.test/api/ntulearn/refresh", { method: "POST" }), env);
+    assert.equal(first.status, 200);
     assert.deepEqual(calls, [{ url: "https://collector.example/refresh", authorization: "Bearer collector-token" }]);
+    assert.equal((await first.json()).status.state, "success");
 
     const second = await worker.fetch(new Request("https://example.test/api/ntulearn/refresh", { method: "POST" }), env);
-    assert.equal(second.status, 202);
+    assert.equal(second.status, 429);
     assert.equal(calls.length, 1);
   } finally {
     globalThis.fetch = originalFetch;
