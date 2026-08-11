@@ -11,11 +11,13 @@ const CALENDAR_COURSE_ALIASES = {
   EE6497: ["pattern recognition and deep learning"],
 };
 const CALENDAR_COURSE_IDS = { EE6497: ["27066291"] };
+const CALENDAR_COURSES = new Set([...ALLOWED_COURSES, "NTU"]);
 const MAX_ICAL_BYTES = 1024 * 1024;
 const MAX_ICAL_EVENTS = 2000;
 const MAX_PUBLIC_EVENTS = 512;
 const CALENDAR_SUCCESS_COOLDOWN_MS = 10 * 60 * 1000;
 const CALENDAR_FAILURE_BACKOFF_MS = 60 * 1000;
+let calendarRefreshInFlight = null;
 
 export const DEFAULT_SCHEDULE = {
   version: 1,
@@ -223,7 +225,7 @@ function isCalendarSnapshot(value) {
   if (!Array.isArray(value.events) || value.events.length > MAX_PUBLIC_EVENTS) return false;
   return value.events.every((event) => event && typeof event === "object"
     && /^[a-z0-9-]{20,40}$/.test(event.id)
-    && ALLOWED_COURSES.has(event.courseCode)
+    && CALENDAR_COURSES.has(event.courseCode)
     && typeof event.title === "string" && event.title.length > 0 && event.title.length <= 180
     && isIsoOrDate(event.start)
     && (event.end === null || isIsoOrDate(event.end))
@@ -315,19 +317,31 @@ function normalizedCalendarSearch(value) {
   return decodeCalendarText(value).toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function courseCodeForCalendarEvent(lines) {
-  const searchable = normalizedCalendarSearch(lines.join(" "));
+function courseCodeForCalendarEvent(properties) {
+  const searchable = normalizedCalendarSearch([
+    ...(properties.get("SUMMARY") || []).map((item) => item.value),
+    ...(properties.get("CATEGORIES") || []).map((item) => item.value),
+  ].join(" "));
   const compact = searchable.replace(/\s+/g, "");
+  const trustedUrls = (properties.get("URL") || []).map((item) => {
+    try {
+      const url = new URL(item.value);
+      return url.protocol === "https:" && url.hostname === "ntulearn.ntu.edu.sg" ? normalizedCalendarSearch(`${url.pathname} ${url.search}`) : "";
+    } catch {
+      return "";
+    }
+  }).join(" ").replace(/\s+/g, "");
+  const matches = new Set();
   for (const code of ALLOWED_COURSES) {
-    if (compact.includes(code.toLowerCase())) return code;
+    if (compact.includes(code.toLowerCase())) matches.add(code);
   }
   for (const [code, ids] of Object.entries(CALENDAR_COURSE_IDS)) {
-    if (ids.some((id) => compact.includes(id))) return code;
+    if (ids.some((id) => trustedUrls.includes(id))) matches.add(code);
   }
   for (const [code, aliases] of Object.entries(CALENDAR_COURSE_ALIASES)) {
-    if (aliases.some((alias) => searchable.includes(alias) || compact.includes(alias.replace(/\s+/g, "")))) return code;
+    if (aliases.some((alias) => searchable.includes(alias) || compact.includes(alias.replace(/\s+/g, "")))) matches.add(code);
   }
-  return null;
+  return matches.size === 1 ? [...matches][0] : null;
 }
 
 function calendarProperties(lines) {
@@ -347,32 +361,53 @@ function parseCalendarDate(property) {
   if (!property) return null;
   const value = property.value.trim();
   const date = /^(\d{4})(\d{2})(\d{2})$/.exec(value);
-  if (date) return { value: `${date[1]}-${date[2]}-${date[3]}`, allDay: true, time: Date.parse(`${date[1]}-${date[2]}-${date[3]}T00:00:00+08:00`) };
+  if (date) {
+    const [year, month, day] = date.slice(1).map(Number);
+    const check = new Date(Date.UTC(year, month - 1, day));
+    if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return null;
+    const dateValue = `${date[1]}-${date[2]}-${date[3]}`;
+    return { value: dateValue, allDay: true, time: Date.parse(`${dateValue}T00:00:00+08:00`) };
+  }
   const dateTime = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/.exec(value);
   if (!dateTime) return null;
-  const utc = Date.UTC(Number(dateTime[1]), Number(dateTime[2]) - 1, Number(dateTime[3]), Number(dateTime[4]), Number(dateTime[5]), Number(dateTime[6]));
+  const [year, month, day, hour, minute, second] = dateTime.slice(1, 7).map(Number);
+  const utc = Date.UTC(year, month - 1, day, hour, minute, second);
+  const check = new Date(utc);
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day
+    || check.getUTCHours() !== hour || check.getUTCMinutes() !== minute || check.getUTCSeconds() !== second) return null;
+  const tzid = (/(?:^|;)TZID=([^;:]+)/i.exec(property.left)?.[1] || "").replace(/^"|"$/g, "") || null;
+  if (!dateTime[7] && tzid && !["Asia/Singapore", "Singapore Standard Time"].includes(tzid)) return null;
   const time = dateTime[7] === "Z" ? utc : utc - 8 * 60 * 60 * 1000;
   if (!Number.isFinite(time)) return null;
   return { value: new Date(time).toISOString(), allDay: false, time };
 }
 
 function calendarKind(title, properties) {
-  if (properties.has("DUE") || /\b(?:due|deadline|assignment|quiz|exam|test|submit)\b|截止|测验|考试|提交/i.test(title)) return "deadline";
+  if (properties.has("DUE") || /\b(?:due|deadline|submit)\b|截止|提交/i.test(title)) return "deadline";
   return "event";
 }
 
-async function publicCalendarEvent(lines, nowMs) {
-  const courseCode = courseCodeForCalendarEvent(lines);
-  if (!courseCode) return { event: null, reason: "not_target" };
+async function publicCalendarEvent(lines, nowMs, allowGeneric) {
   const properties = calendarProperties(lines);
+  const identifiedCourse = courseCodeForCalendarEvent(properties);
+  if (!identifiedCourse && !allowGeneric) return { event: null, reason: "not_target" };
+  const courseCode = identifiedCourse || "NTU";
   if (properties.has("RRULE") || properties.has("RDATE") || properties.has("EXDATE")) return { event: null, reason: "recurring" };
-  const start = parseCalendarDate(properties.get("DTSTART")?.[0] || properties.get("DUE")?.[0]);
+  const sanitizedTitle = sanitizeCalendarTitle(properties.get("SUMMARY")?.[0]?.value);
+  const kind = calendarKind(sanitizedTitle, properties);
+  const start = parseCalendarDate(kind === "deadline"
+    ? properties.get("DUE")?.[0] || properties.get("DTSTART")?.[0]
+    : properties.get("DTSTART")?.[0] || properties.get("DUE")?.[0]);
   if (!start) return { event: null, reason: "invalid_date" };
-  const end = parseCalendarDate(properties.get("DTEND")?.[0] || properties.get("DUE")?.[0]);
+  const end = parseCalendarDate(kind === "deadline"
+    ? properties.get("DUE")?.[0] || properties.get("DTEND")?.[0]
+    : properties.get("DTEND")?.[0] || properties.get("DUE")?.[0]);
   if (end && end.time < start.time) return { event: null, reason: "invalid_date" };
-  if (start.time < nowMs - 24 * 60 * 60 * 1000 || start.time > nowMs + 370 * 24 * 60 * 60 * 1000) return { event: null, reason: "out_of_range" };
-  const title = sanitizeCalendarTitle(properties.get("SUMMARY")?.[0]?.value);
-  const identity = `${courseCode}|${properties.get("UID")?.[0]?.value || ""}|${start.value}|${title}`;
+  if (start.time < nowMs - 30 * 24 * 60 * 60 * 1000 || start.time > nowMs + 370 * 24 * 60 * 60 * 1000) return { event: null, reason: "out_of_range" };
+  const title = identifiedCourse ? sanitizedTitle : kind === "deadline" ? "NTULearn 截止事项" : "NTULearn 日历事项";
+  const identity = identifiedCourse
+    ? `${courseCode}|${properties.get("UID")?.[0]?.value || ""}|${start.value}|${title}`
+    : `${courseCode}|${start.value}|${end?.value || ""}|${start.allDay}`;
   const digest = bytesToHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity))).slice(0, 20);
   return {
     reason: "kept",
@@ -383,7 +418,7 @@ async function publicCalendarEvent(lines, nowMs) {
       start: start.value,
       end: end?.value || null,
       allDay: start.allDay,
-      kind: calendarKind(title, properties),
+      kind,
     },
   };
 }
@@ -405,7 +440,7 @@ export async function parseNtuLearnCalendar(text, nowMs = Date.now()) {
     } else if (current) current.push(line);
   }
   if (current) throw new Error("invalid_calendar");
-  const parsed = await Promise.all(blocks.map((block) => publicCalendarEvent(block, nowMs)));
+  const parsed = await Promise.all(blocks.map((block) => publicCalendarEvent(block, nowMs, blocks.length === 1)));
   const diagnostics = {
     totalEvents: blocks.length,
     targetEvents: parsed.filter((item) => item.reason !== "not_target").length,
@@ -523,6 +558,16 @@ async function refreshCalendar(request, env, fetchImpl, now) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function runCalendarRefresh(request, env, fetchImpl, now) {
+  if (calendarRefreshInFlight) return calendarRefreshInFlight;
+  const operation = refreshCalendar(request, env, fetchImpl, now);
+  const tracked = operation.finally(() => {
+    if (calendarRefreshInFlight === tracked) calendarRefreshInFlight = null;
+  });
+  calendarRefreshInFlight = tracked;
+  return tracked;
 }
 
 async function readCatalog(bucket) {
@@ -754,7 +799,7 @@ export default {
       return json(await calendarResponse(bucket), 200, { "X-Content-Type-Options": "nosniff" });
     }
     if (url.pathname === "/api/calendar/refresh" && request.method === "POST") {
-      const result = await refreshCalendar(request, env, fetch, Date.now);
+      const result = await runCalendarRefresh(request, env, fetch, Date.now);
       return json(result.data, result.status, { "X-Content-Type-Options": "nosniff", ...(result.headers || {}) });
     }
     if (url.pathname === "/api/upload" && request.method === "POST") return uploadFromBrowser(request, env, url);

@@ -119,7 +119,16 @@ test("NTULearn calendar parsing keeps only safe allowlisted events", async () =>
   assert.equal(parsed.events[1].start, "2026-08-13T10:30:00.000Z");
   assert.equal(parsed.events[2].allDay, true);
   const publicText = JSON.stringify(parsed.events);
-  assert.doesNotMatch(publicText, /private-student|Secret description|meet\.example|123456|recurring@example/);
+  assert.doesNotMatch(publicText, /private-student|Secret description|meet\.example|123456|recurring@example|Unrelated personal/);
+});
+
+test("a single unclassified NTULearn event is reduced to a generic private-safe item", async () => {
+  const calendar = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:private-student@example.test\nDTSTART:20260815T100000Z\nSUMMARY:Unrelated personal calendar event\nDESCRIPTION:Secret details\nEND:VEVENT\nEND:VCALENDAR`;
+  const parsed = await parseNtuLearnCalendar(calendar, Date.parse("2026-08-11T00:00:00Z"));
+  assert.equal(parsed.events.length, 1);
+  assert.equal(parsed.events[0].courseCode, "NTU");
+  assert.equal(parsed.events[0].title, "NTULearn 日历事项");
+  assert.doesNotMatch(JSON.stringify(parsed.events), /private-student|Unrelated personal|Secret details/);
 });
 
 test("NTULearn calendar parser rejects malformed input", async () => {
@@ -133,6 +142,28 @@ test("NTULearn calendar parser recognizes the verified internal course id", asyn
   assert.equal(parsed.events.length, 1);
   assert.equal(parsed.events[0].courseCode, "EE6497");
   assert.doesNotMatch(JSON.stringify(parsed.events), /2706629|\/outline/);
+});
+
+test("calendar parsing rejects invalid dates and unsupported timezones", async () => {
+  const invalidDate = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nDTSTART:20260231T100000Z\nSUMMARY:EE6221 invalid\nEND:VEVENT\nEND:VCALENDAR`;
+  const unsupportedZone = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nDTSTART;TZID=America/New_York:20260815T100000\nSUMMARY:EE6221 wrong zone\nEND:VEVENT\nEND:VCALENDAR`;
+  assert.equal((await parseNtuLearnCalendar(invalidDate, Date.parse("2026-08-11T00:00:00Z"))).events.length, 0);
+  assert.equal((await parseNtuLearnCalendar(unsupportedZone, Date.parse("2026-08-11T00:00:00Z"))).events.length, 0);
+});
+
+test("calendar deadlines prefer DUE while ordinary exams remain events", async () => {
+  const calendar = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:due\nDTSTART;TZID=Asia/Singapore:20260815T090000\nDUE;TZID=Asia/Singapore:20260815T235900\nSUMMARY:EE6221 assignment due\nEND:VEVENT\nBEGIN:VEVENT\nUID:exam\nDTSTART;VALUE=DATE:20260816\nSUMMARY:EE6406 exam\nEND:VEVENT\nEND:VCALENDAR`;
+  const parsed = await parseNtuLearnCalendar(calendar, Date.parse("2026-08-11T00:00:00Z"));
+  assert.equal(parsed.events[0].kind, "deadline");
+  assert.equal(parsed.events[0].start, "2026-08-15T15:59:00.000Z");
+  assert.equal(parsed.events[1].kind, "event");
+});
+
+test("private description text cannot classify an unrelated event as a course", async () => {
+  const calendar = `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:private\nDTSTART:20260815T100000Z\nSUMMARY:Private appointment\nDESCRIPTION:Review EE6221 later\nEND:VEVENT\nBEGIN:VEVENT\nUID:known\nDTSTART:20260816T100000Z\nSUMMARY:EE6406 lecture\nEND:VEVENT\nEND:VCALENDAR`;
+  const parsed = await parseNtuLearnCalendar(calendar, Date.parse("2026-08-11T00:00:00Z"));
+  assert.deepEqual(parsed.events.map((event) => event.courseCode), ["EE6406"]);
+  assert.doesNotMatch(JSON.stringify(parsed.events), /Private appointment|private/);
 });
 
 test("Sites refresh stores a safe snapshot and uses the success cooldown", async () => {
@@ -167,6 +198,32 @@ test("Sites refresh stores a safe snapshot and uses the success cooldown", async
     const read = await worker.fetch(new Request("https://example.test/api/calendar"), env);
     assert.equal(read.status, 200);
     assert.equal((await read.json()).status.state, "success");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("concurrent calendar refreshes share one fetch and release the in-flight operation", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return new Response(SAMPLE_ICS, { status: 200, headers: { "content-type": "text/calendar" } });
+  };
+  const feed = "https://ntulearn.ntu.edu.sg/webapps/calendar/calendarFeed/0123456789abcdef0123456789abcdef/learn.ics";
+  try {
+    const firstBucket = new MemoryBucket();
+    const request = () => worker.fetch(new Request("https://example.test/api/calendar/refresh", { method: "POST" }), { FILES: firstBucket, NTULEARN_ICAL_URL: feed });
+    const [first, coalesced] = await Promise.all([request(), request()]);
+    assert.equal(first.status, 200);
+    assert.equal(coalesced.status, 200);
+    assert.equal(calls, 1);
+
+    const secondBucket = new MemoryBucket();
+    const later = await worker.fetch(new Request("https://example.test/api/calendar/refresh", { method: "POST" }), { FILES: secondBucket, NTULEARN_ICAL_URL: feed });
+    assert.equal(later.status, 200);
+    assert.equal(calls, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -208,7 +265,9 @@ test("a failed refresh preserves the last successful calendar snapshot", async (
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("unavailable", { status: 503, headers: { "content-type": "text/plain" } });
   try {
-    const response = await worker.fetch(new Request("https://example.test/api/calendar/refresh", { method: "POST" }), {
+    const response = await worker.fetch(new Request("https://example.test/api/calendar/refresh", {
+      method: "POST",
+    }), {
       FILES: bucket,
       NTULEARN_ICAL_URL: "https://ntulearn.ntu.edu.sg/webapps/calendar/calendarFeed/0123456789abcdef0123456789abcdef/learn.ics",
     });

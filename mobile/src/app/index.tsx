@@ -1,23 +1,46 @@
-import { useEffect, useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
+import Animated, { cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
 import { palette } from '@/constants/palette';
+import { singaporeDateKey } from '@/core/calendar';
 import { CourseSession, getNextClass } from '@/core/schedule';
 import { useSchedule } from '@/hooks/use-schedule';
+import { useCalendar } from '@/hooks/use-calendar';
 import { PressableScale } from '@/components/pressable-scale';
 import { ScheduleSheet } from '@/components/schedule-sheet';
 
 const DAY_NUMBERS: Record<number, string> = { 0: 'SUN', 1: 'MON', 2: 'TUE', 3: 'WED', 4: 'THU', 5: 'FRI', 6: 'SAT' };
 
+function calendarEventLabels(start: string, allDay: boolean) {
+  const date = new Date(allDay ? `${start}T00:00:00+08:00` : start);
+  const key = singaporeDateKey(date);
+  const today = singaporeDateKey(new Date());
+  const tomorrow = singaporeDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  const dateLabel = key === today ? '今天' : key === tomorrow ? '明天' : new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Singapore', month: 'numeric', day: 'numeric' }).format(date);
+  const timeLabel = allDay ? '全天' : new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+  return { dateLabel, timeLabel };
+}
+
+function calendarUpdateLabel(updatedAt: string) {
+  const updated = new Date(updatedAt);
+  if (singaporeDateKey(updated) === singaporeDateKey(new Date())) {
+    return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(updated);
+  }
+  return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Singapore', month: 'numeric', day: 'numeric' }).format(updated);
+}
+
 export default function HomeScreen() {
-  const { schedule, source, refreshing, refresh } = useSchedule();
+  const { schedule, source: scheduleSource, refreshing: scheduleRefreshing, refresh: refreshSchedule } = useSchedule();
+  const { calendar, events, source: calendarSource, state: calendarState, activate } = useCalendar();
   const [selected, setSelected] = useState<CourseSession | null>(null);
   const nextClass = useMemo(() => getNextClass(schedule), [schedule]);
   const reducedMotion = useReducedMotion();
   const drift = useSharedValue(0);
+  const syncOpacity = useSharedValue(1);
+  const syncing = scheduleRefreshing || calendarState === 'refreshing';
 
   useEffect(() => {
     if (reducedMotion) return;
@@ -27,16 +50,31 @@ export default function HomeScreen() {
   const glowStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: drift.value * -22 }, { translateY: drift.value * 18 }, { scale: 1 + drift.value * 0.05 }],
   }));
+  useEffect(() => {
+    cancelAnimation(syncOpacity);
+    syncOpacity.value = syncing && !reducedMotion
+      ? withRepeat(withSequence(withTiming(0.28, { duration: 520 }), withTiming(1, { duration: 520 })), -1, false)
+      : withTiming(1, { duration: 120 });
+  }, [reducedMotion, syncOpacity, syncing]);
+  const syncDotStyle = useAnimatedStyle(() => ({ opacity: syncOpacity.value }));
+  const calendarLabel = syncing
+    ? '正在同步'
+    : calendarState === 'error'
+      ? '更新失败'
+      : calendarSource === 'cache'
+        ? '离线缓存'
+        : calendar.updatedAt ? `已更新 ${calendarUpdateLabel(calendar.updatedAt)}` : '刷新日历';
+  const refreshAll = useCallback(() => {
+    if (syncing) return;
+    void Promise.allSettled([refreshSchedule(), activate()]);
+  }, [activate, refreshSchedule, syncing]);
 
   return (
     <LinearGradient colors={['#E6F9FD', '#F8FEFB', '#F8F2E3']} locations={[0, 0.58, 1]} style={styles.background}>
       <Animated.View pointerEvents="none" style={[styles.glow, glowStyle]} />
       <View pointerEvents="none" style={styles.shore} />
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.cyan} colors={[palette.cyan]} progressBackgroundColor={palette.foam} />}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
           <View style={styles.topbar}>
             <View style={styles.brandRow}>
               <View style={styles.brandMark}><Text style={styles.brandMarkText}>知</Text></View>
@@ -45,7 +83,10 @@ export default function HomeScreen() {
                 <Text style={styles.brandCaption}>NTU COURSE ATLAS</Text>
               </View>
             </View>
-            <View style={styles.syncPill}><View style={[styles.syncDot, source !== 'live' && styles.syncDotOffline]} /><Text style={styles.syncPillText}>{source === 'live' ? '已同步' : source === 'cache' ? '离线缓存' : '正在同步'}</Text></View>
+            <PressableScale accessibilityRole="button" accessibilityLabel="刷新课表和 NTULearn 日历" disabled={syncing} hitSlop={8} onPress={refreshAll} style={styles.syncPill}>
+              <Animated.View style={[styles.syncDot, (calendarState === 'error' || calendarSource === 'cache') && styles.syncDotOffline, syncDotStyle]} />
+              <Text style={styles.syncPillText}>{calendarLabel}</Text>
+            </PressableScale>
           </View>
 
           <View style={styles.heading}>
@@ -69,10 +110,22 @@ export default function HomeScreen() {
           ) : (
             <View style={styles.emptyCard}>
               <View style={styles.emptyPulse} />
-              <Text style={styles.emptyTitle}>{refreshing ? '正在获取课表' : '暂时无法获取课表'}</Text>
-              <Text style={styles.emptyText}>{refreshing ? '首次打开需要连接 Course Atlas。' : '下拉即可重新同步，已有缓存时会自动显示。'}</Text>
+              <Text style={styles.emptyTitle}>{scheduleRefreshing ? '正在获取课表' : '暂时无法获取课表'}</Text>
+              <Text style={styles.emptyText}>{scheduleRefreshing ? '首次同步后会保存在本机。' : '点击右上角刷新；已有缓存时会自动显示。'}</Text>
             </View>
           )}
+
+          <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>近期事项</Text><Text style={styles.sectionHint}>未来 14 天</Text></View>
+          <View style={styles.calendarList}>
+            {events.length === 0 ? <Text style={styles.calendarEmpty}>{calendar.updatedAt ? '未来 14 天没有事项' : '点击右上角刷新日历'}</Text> : events.map((event, index) => {
+              const labels = calendarEventLabels(event.start, event.allDay);
+              return <View key={event.id} style={[styles.calendarEvent, index < events.length - 1 && styles.calendarEventBorder]}>
+                <View style={styles.calendarDate}><Text style={styles.calendarDateText}>{labels.dateLabel}</Text></View>
+                <View style={styles.calendarCopy}><Text numberOfLines={2} style={styles.calendarTitle}>{event.title}</Text><Text style={styles.calendarMeta}>{event.courseCode} · {event.kind === 'deadline' ? labels.timeLabel === '全天' ? '截止当天' : `截止 ${labels.timeLabel}` : labels.timeLabel}</Text></View>
+                <View style={[styles.calendarKindDot, event.kind === 'deadline' && styles.calendarDeadlineDot]} />
+              </View>;
+            })}
+          </View>
 
           {schedule.courses.length > 0 && <><View style={styles.sectionHeader}><Text style={styles.sectionTitle}>固定安排</Text><Text style={styles.sectionHint}>点击查看详情</Text></View>
           <View style={styles.courseList}>
@@ -99,7 +152,7 @@ export default function HomeScreen() {
             ))}
           </View></>}
 
-          {schedule.source && <View style={styles.sourceNote}><Text style={styles.sourceLabel}>数据来源</Text><Text numberOfLines={1} style={styles.sourceValue}>{schedule.source}</Text></View>}
+          {schedule.source && <View style={styles.sourceNote}><Text style={styles.sourceLabel}>数据来源</Text><Text numberOfLines={1} style={styles.sourceValue}>{scheduleSource === 'cache' ? '离线缓存 · ' : ''}{schedule.source}</Text></View>}
         </ScrollView>
       </SafeAreaView>
       <ScheduleSheet course={selected} source={schedule.source} visible={Boolean(selected)} onClose={() => setSelected(null)} />
@@ -145,7 +198,18 @@ const styles = StyleSheet.create({
   emptyText: { maxWidth: 260, marginTop: 8, color: palette.muted, fontSize: 11, lineHeight: 17, textAlign: 'center' },
   sectionHeader: { marginTop: 29, marginBottom: 11, paddingHorizontal: 2, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   sectionTitle: { color: palette.ink, fontSize: 17, fontWeight: '700' },
-  sectionHint: { color: palette.muted, fontSize: 9, fontWeight: '600' },
+  sectionHint: { color: palette.muted, fontSize: 10, fontWeight: '600' },
+  calendarList: { paddingHorizontal: 14, borderWidth: 1, borderColor: palette.line, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.7)' },
+  calendarEvent: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  calendarEventBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.line },
+  calendarDate: { width: 45, height: 37, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#E6F7FA' },
+  calendarDateText: { color: palette.cyanDeep, fontSize: 11, fontWeight: '800' },
+  calendarCopy: { flex: 1, minWidth: 0, paddingVertical: 13 },
+  calendarTitle: { color: palette.ink, fontSize: 14, lineHeight: 19, fontWeight: '600' },
+  calendarMeta: { marginTop: 5, color: palette.muted, fontSize: 11, fontWeight: '600' },
+  calendarKindDot: { width: 7, height: 7, marginRight: 3, borderRadius: 4, backgroundColor: palette.cyan },
+  calendarDeadlineDot: { backgroundColor: '#E6A64D' },
+  calendarEmpty: { paddingVertical: 22, color: palette.muted, fontSize: 11, textAlign: 'center' },
   courseList: { paddingHorizontal: 14, borderWidth: 1, borderColor: palette.line, borderRadius: 25, backgroundColor: 'rgba(255, 255, 255, 0.73)', shadowColor: '#2B7E91', shadowOpacity: 0.08, shadowRadius: 30, shadowOffset: { width: 0, height: 14 } },
   courseCard: { minHeight: 107, flexDirection: 'row', alignItems: 'center' },
   dayColumn: { width: 45, alignSelf: 'stretch', alignItems: 'center', paddingTop: 24 },
