@@ -7,7 +7,7 @@
   "browser": { "binding": "BROWSER" },
   "triggers": { "crons": [] },
   "kv_namespaces": [
-    { "binding": "STATE", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }
+    { "binding": "STATE", "id": "180a81fdc81f46cd8d66b7e2a0216745" }
   ],
   "vars": {
     "SITES_URL": "https://fatemeeting.site",
