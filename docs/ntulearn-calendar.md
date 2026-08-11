@@ -9,7 +9,7 @@ Cloudflare Worker, or NTU password in the system.
 - `NTULEARN_ICAL_URL` is a Sites-managed secret. Never put it in Git, an APK,
   logs, R2, or an API response.
 - `POST /api/calendar/refresh` validates and downloads the ICS once, keeps the
-  exact decoded `SUMMARY` and time needed by the app, and writes the last-good
+  decoded `SUMMARY` content and time needed by the app, and writes the last-good
   JSON snapshot to the existing Sites R2 binding.
 - `GET /api/calendar` only reads that snapshot. The Android client caches the
   validated response in AsyncStorage and renders the cache before the network.
@@ -17,12 +17,14 @@ Cloudflare Worker, or NTU password in the system.
   browser checks, same-isolate request coalescing, a 10-minute success cooldown,
   and a 60-second failure backoff. R2 is not an atomic global rate limiter.
 
-The public snapshot contains only an opaque ID, course code, the exact decoded
-title, start/end time, all-day flag, and event/deadline kind. Control characters
-and excess whitespace are normalized, but title content is not redacted.
+The public snapshot contains only an opaque ID, course code, decoded title,
+start/end time, all-day flag, and event/deadline kind. Control characters and
+excess whitespace are normalized and titles are capped at 180 characters, but
+their content is not selectively redacted.
 Description, UID, URL, organizer, attendees, attachments, and the original ICS
 are discarded as separate fields. Text already present inside `SUMMARY` is kept
-unchanged apart from the technical normalization above. Every valid non-recurring event is retained;
+without content-specific redaction, subject to the normalization and length cap
+above. Every valid non-recurring event is retained;
 unclassified events use the generic course code `NTU` while preserving their
 title. Because both endpoints are public, anyone with the Site URL can read this
 runtime snapshot; this is an explicit single-user convenience tradeoff.
