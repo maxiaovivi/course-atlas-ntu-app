@@ -359,19 +359,19 @@ function calendarKind(title, properties) {
 
 async function publicCalendarEvent(lines, nowMs) {
   const courseCode = courseCodeForCalendarEvent(lines);
-  if (!courseCode) return { event: null, recurring: false };
+  if (!courseCode) return { event: null, reason: "not_target" };
   const properties = calendarProperties(lines);
-  if (properties.has("RRULE") || properties.has("RDATE") || properties.has("EXDATE")) return { event: null, recurring: true };
+  if (properties.has("RRULE") || properties.has("RDATE") || properties.has("EXDATE")) return { event: null, reason: "recurring" };
   const start = parseCalendarDate(properties.get("DTSTART")?.[0] || properties.get("DUE")?.[0]);
-  if (!start) return { event: null, recurring: false };
+  if (!start) return { event: null, reason: "invalid_date" };
   const end = parseCalendarDate(properties.get("DTEND")?.[0] || properties.get("DUE")?.[0]);
-  if (end && end.time < start.time) return { event: null, recurring: false };
-  if (start.time < nowMs - 24 * 60 * 60 * 1000 || start.time > nowMs + 370 * 24 * 60 * 60 * 1000) return { event: null, recurring: false };
+  if (end && end.time < start.time) return { event: null, reason: "invalid_date" };
+  if (start.time < nowMs - 24 * 60 * 60 * 1000 || start.time > nowMs + 370 * 24 * 60 * 60 * 1000) return { event: null, reason: "out_of_range" };
   const title = sanitizeCalendarTitle(properties.get("SUMMARY")?.[0]?.value);
   const identity = `${courseCode}|${properties.get("UID")?.[0]?.value || ""}|${start.value}|${title}`;
   const digest = bytesToHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity))).slice(0, 20);
   return {
-    recurring: false,
+    reason: "kept",
     event: {
       id: `${courseCode.toLowerCase()}-${digest}`,
       courseCode,
@@ -402,11 +402,18 @@ export async function parseNtuLearnCalendar(text, nowMs = Date.now()) {
   }
   if (current) throw new Error("invalid_calendar");
   const parsed = await Promise.all(blocks.map((block) => publicCalendarEvent(block, nowMs)));
-  const ignoredRecurring = parsed.filter((item) => item.recurring).length;
+  const diagnostics = {
+    totalEvents: blocks.length,
+    targetEvents: parsed.filter((item) => item.reason !== "not_target").length,
+    recurring: parsed.filter((item) => item.reason === "recurring").length,
+    invalidDate: parsed.filter((item) => item.reason === "invalid_date").length,
+    outOfRange: parsed.filter((item) => item.reason === "out_of_range").length,
+  };
+  const ignoredRecurring = diagnostics.recurring;
   const unique = new Map();
   for (const item of parsed) if (item.event) unique.set(item.event.id, item.event);
   const events = [...unique.values()].sort((left, right) => Date.parse(left.start) - Date.parse(right.start)).slice(0, MAX_PUBLIC_EVENTS);
-  return { events, totalEvents: blocks.length, ignoredRecurring };
+  return { events, totalEvents: blocks.length, ignoredRecurring, diagnostics };
 }
 
 async function readLimitedCalendar(response) {
@@ -480,6 +487,7 @@ async function refreshCalendar(request, env, fetchImpl, now) {
   await writeCalendarStatus(bucket, { state: "running", attemptedAt, lastSuccessAt: previous.lastSuccessAt, eventCount: previous.eventCount, errorCode: null });
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
+  let diagnostics = null;
   try {
     const response = await fetchImpl(feedUrl.toString(), { method: "GET", headers: { Accept: "text/calendar" }, redirect: "manual", signal: controller.signal });
     if (response.status !== 200) throw new Error("upstream_unavailable");
@@ -487,6 +495,7 @@ async function refreshCalendar(request, env, fetchImpl, now) {
     if (!contentType.toLowerCase().startsWith("text/calendar")) throw new Error("invalid_calendar");
     const text = await readLimitedCalendar(response);
     const parsed = await parseNtuLearnCalendar(text, currentMs);
+    diagnostics = parsed.diagnostics;
     if (parsed.events.length === 0) throw new Error("no_matching_events");
     const snapshot = {
       version: 1,
@@ -506,7 +515,7 @@ async function refreshCalendar(request, env, fetchImpl, now) {
   } catch (error) {
     const code = error?.name === "AbortError" ? "timeout" : calendarErrorStatus(error?.message);
     await writeCalendarStatus(bucket, { state: "error", attemptedAt, lastSuccessAt: previous.lastSuccessAt, eventCount: previous.eventCount, errorCode: code });
-    return { status: code === "timeout" ? 504 : 502, data: { error: "Calendar refresh failed", code } };
+    return { status: code === "timeout" ? 504 : 502, data: { error: "Calendar refresh failed", code, diagnostics: code === "no_matching_events" ? diagnostics : undefined } };
   } finally {
     clearTimeout(timeout);
   }
