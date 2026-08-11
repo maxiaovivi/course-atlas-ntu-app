@@ -1,7 +1,20 @@
 const CATALOG_KEY = "library/catalog-v1.json";
 const SCHEDULE_KEY = "app/schedule-v1.json";
+const CALENDAR_KEY = "app/ntulearn-calendar-v1.json";
+const CALENDAR_STATUS_KEY = "app/ntulearn-calendar-status-v1.json";
 const ALLOWED_COURSES = new Set(["EE6221", "EE6406", "EE6407", "EE6497"]);
 const ALLOWED_SHELVES = new Set(["Lectures", "Assignments", "Study aids", "Quiz", "Exams"]);
+const CALENDAR_COURSE_ALIASES = {
+  EE6221: ["robotics and intelligent sensors"],
+  EE6406: ["analytic and ensemble machine learning"],
+  EE6407: ["genetic algorithms and machine learning"],
+  EE6497: ["pattern recognition and deep learning"],
+};
+const MAX_ICAL_BYTES = 1024 * 1024;
+const MAX_ICAL_EVENTS = 2000;
+const MAX_PUBLIC_EVENTS = 512;
+const CALENDAR_SUCCESS_COOLDOWN_MS = 10 * 60 * 1000;
+const CALENDAR_FAILURE_BACKOFF_MS = 60 * 1000;
 
 export const DEFAULT_SCHEDULE = {
   version: 1,
@@ -188,6 +201,315 @@ async function updateSchedule(request, env) {
     customMetadata: { purpose: "course-atlas-schedule", version: String(schedule.version) },
   });
   return json({ ok: true, updatedAt: schedule.updatedAt, courses: schedule.courses.length, exceptions: schedule.exceptions.length });
+}
+
+function emptyCalendar() {
+  return { version: 1, updatedAt: null, timezone: "Asia/Singapore", source: "NTULearn shared calendar", ignoredRecurring: 0, events: [] };
+}
+
+function emptyCalendarStatus() {
+  return { state: "idle", attemptedAt: null, lastSuccessAt: null, eventCount: 0, errorCode: null };
+}
+
+function isIsoOrDate(value) {
+  return typeof value === "string" && (/^20\d{2}-[01]\d-[0-3]\d$/.test(value) || Number.isFinite(Date.parse(value)));
+}
+
+function isCalendarSnapshot(value) {
+  if (!value || typeof value !== "object" || value.version !== 1 || value.timezone !== "Asia/Singapore") return false;
+  if (value.updatedAt !== null && !Number.isFinite(Date.parse(value.updatedAt))) return false;
+  if (value.source !== "NTULearn shared calendar" || !Number.isInteger(value.ignoredRecurring) || value.ignoredRecurring < 0) return false;
+  if (!Array.isArray(value.events) || value.events.length > MAX_PUBLIC_EVENTS) return false;
+  return value.events.every((event) => event && typeof event === "object"
+    && /^[a-z0-9-]{20,40}$/.test(event.id)
+    && ALLOWED_COURSES.has(event.courseCode)
+    && typeof event.title === "string" && event.title.length > 0 && event.title.length <= 180
+    && isIsoOrDate(event.start)
+    && (event.end === null || isIsoOrDate(event.end))
+    && typeof event.allDay === "boolean"
+    && ["event", "deadline"].includes(event.kind));
+}
+
+function isCalendarStatus(value) {
+  return value && typeof value === "object"
+    && ["idle", "running", "success", "error"].includes(value.state)
+    && (value.attemptedAt === null || Number.isFinite(Date.parse(value.attemptedAt)))
+    && (value.lastSuccessAt === null || Number.isFinite(Date.parse(value.lastSuccessAt)))
+    && Number.isInteger(value.eventCount) && value.eventCount >= 0
+    && (value.errorCode === null || /^[a-z_]{3,48}$/.test(value.errorCode));
+}
+
+async function readCalendar(bucket) {
+  const object = await bucket.get(CALENDAR_KEY);
+  if (!object) return emptyCalendar();
+  try {
+    const value = JSON.parse(await object.text());
+    return isCalendarSnapshot(value) ? value : emptyCalendar();
+  } catch {
+    return emptyCalendar();
+  }
+}
+
+async function readCalendarStatus(bucket) {
+  const object = await bucket.get(CALENDAR_STATUS_KEY);
+  if (!object) return emptyCalendarStatus();
+  try {
+    const value = JSON.parse(await object.text());
+    return isCalendarStatus(value) ? value : emptyCalendarStatus();
+  } catch {
+    return emptyCalendarStatus();
+  }
+}
+
+async function writeCalendarStatus(bucket, value) {
+  await bucket.put(CALENDAR_STATUS_KEY, JSON.stringify(value), {
+    httpMetadata: { contentType: "application/json", cacheControl: "private, no-store" },
+    customMetadata: { purpose: "course-atlas-calendar-status" },
+  });
+}
+
+function validateCalendarFeedUrl(value) {
+  if (typeof value !== "string" || value.length > 500) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.hostname !== "ntulearn.ntu.edu.sg" || url.port || url.username || url.password || url.search || url.hash) return null;
+    if (!/^\/webapps\/calendar\/calendarFeed\/[a-f0-9]{32}\/learn\.ics$/i.test(url.pathname)) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+function unfoldCalendarLines(text) {
+  const physical = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const lines = [];
+  for (const line of physical) {
+    if (/^[ \t]/.test(line) && lines.length > 0) lines[lines.length - 1] += line.slice(1);
+    else lines.push(line);
+  }
+  while (lines[0]?.trim() === "") lines.shift();
+  while (lines.at(-1)?.trim() === "") lines.pop();
+  if (lines[0]?.charCodeAt(0) === 0xfeff) lines[0] = lines[0].slice(1);
+  return lines;
+}
+
+function decodeCalendarText(value) {
+  return String(value || "")
+    .replace(/\\[nN]/g, " ")
+    .replace(/\\([,;\\])/g, "$1")
+    .normalize("NFKC");
+}
+
+function sanitizeCalendarTitle(value) {
+  const cleaned = decodeCalendarText(value)
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\b(?:meeting\s*id|passcode|password)\s*[:#]?\s*[\w-]+/gi, "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (cleaned || "课程事项").slice(0, 180);
+}
+
+function normalizedCalendarSearch(value) {
+  return decodeCalendarText(value).toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function courseCodeForCalendarEvent(lines) {
+  const searchable = normalizedCalendarSearch(lines.join(" "));
+  const compact = searchable.replace(/\s+/g, "");
+  for (const code of ALLOWED_COURSES) {
+    if (compact.includes(code.toLowerCase())) return code;
+  }
+  for (const [code, aliases] of Object.entries(CALENDAR_COURSE_ALIASES)) {
+    if (aliases.some((alias) => searchable.includes(alias) || compact.includes(alias.replace(/\s+/g, "")))) return code;
+  }
+  return null;
+}
+
+function calendarProperties(lines) {
+  const values = new Map();
+  for (const line of lines) {
+    const separator = line.indexOf(":");
+    if (separator <= 0) continue;
+    const left = line.slice(0, separator);
+    const name = left.split(";", 1)[0].toUpperCase();
+    if (!values.has(name)) values.set(name, []);
+    values.get(name).push({ left, value: line.slice(separator + 1) });
+  }
+  return values;
+}
+
+function parseCalendarDate(property) {
+  if (!property) return null;
+  const value = property.value.trim();
+  const date = /^(\d{4})(\d{2})(\d{2})$/.exec(value);
+  if (date) return { value: `${date[1]}-${date[2]}-${date[3]}`, allDay: true, time: Date.parse(`${date[1]}-${date[2]}-${date[3]}T00:00:00+08:00`) };
+  const dateTime = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/.exec(value);
+  if (!dateTime) return null;
+  const utc = Date.UTC(Number(dateTime[1]), Number(dateTime[2]) - 1, Number(dateTime[3]), Number(dateTime[4]), Number(dateTime[5]), Number(dateTime[6]));
+  const time = dateTime[7] === "Z" ? utc : utc - 8 * 60 * 60 * 1000;
+  if (!Number.isFinite(time)) return null;
+  return { value: new Date(time).toISOString(), allDay: false, time };
+}
+
+function calendarKind(title, properties) {
+  if (properties.has("DUE") || /\b(?:due|deadline|assignment|quiz|exam|test|submit)\b|截止|测验|考试|提交/i.test(title)) return "deadline";
+  return "event";
+}
+
+async function publicCalendarEvent(lines, nowMs) {
+  const courseCode = courseCodeForCalendarEvent(lines);
+  if (!courseCode) return { event: null, recurring: false };
+  const properties = calendarProperties(lines);
+  if (properties.has("RRULE") || properties.has("RDATE") || properties.has("EXDATE")) return { event: null, recurring: true };
+  const start = parseCalendarDate(properties.get("DTSTART")?.[0] || properties.get("DUE")?.[0]);
+  if (!start) return { event: null, recurring: false };
+  const end = parseCalendarDate(properties.get("DTEND")?.[0] || properties.get("DUE")?.[0]);
+  if (end && end.time < start.time) return { event: null, recurring: false };
+  if (start.time < nowMs - 24 * 60 * 60 * 1000 || start.time > nowMs + 370 * 24 * 60 * 60 * 1000) return { event: null, recurring: false };
+  const title = sanitizeCalendarTitle(properties.get("SUMMARY")?.[0]?.value);
+  const identity = `${courseCode}|${properties.get("UID")?.[0]?.value || ""}|${start.value}|${title}`;
+  const digest = bytesToHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity))).slice(0, 20);
+  return {
+    recurring: false,
+    event: {
+      id: `${courseCode.toLowerCase()}-${digest}`,
+      courseCode,
+      title,
+      start: start.value,
+      end: end?.value || null,
+      allDay: start.allDay,
+      kind: calendarKind(title, properties),
+    },
+  };
+}
+
+export async function parseNtuLearnCalendar(text, nowMs = Date.now()) {
+  if (typeof text !== "string" || text.length === 0 || text.length > MAX_ICAL_BYTES) throw new Error("invalid_calendar");
+  const lines = unfoldCalendarLines(text);
+  if (lines[0]?.trim() !== "BEGIN:VCALENDAR" || lines.at(-1)?.trim() !== "END:VCALENDAR" || !lines.some((line) => line.trim() === "VERSION:2.0")) throw new Error("invalid_calendar");
+  const blocks = [];
+  let current = null;
+  for (const line of lines) {
+    if (line.trim() === "BEGIN:VEVENT") {
+      if (current || blocks.length >= MAX_ICAL_EVENTS) throw new Error("invalid_calendar");
+      current = [];
+    } else if (line.trim() === "END:VEVENT") {
+      if (!current) throw new Error("invalid_calendar");
+      blocks.push(current);
+      current = null;
+    } else if (current) current.push(line);
+  }
+  if (current) throw new Error("invalid_calendar");
+  const parsed = await Promise.all(blocks.map((block) => publicCalendarEvent(block, nowMs)));
+  const ignoredRecurring = parsed.filter((item) => item.recurring).length;
+  const unique = new Map();
+  for (const item of parsed) if (item.event) unique.set(item.event.id, item.event);
+  const events = [...unique.values()].sort((left, right) => Date.parse(left.start) - Date.parse(right.start)).slice(0, MAX_PUBLIC_EVENTS);
+  return { events, totalEvents: blocks.length, ignoredRecurring };
+}
+
+async function readLimitedCalendar(response) {
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (contentLength > MAX_ICAL_BYTES) throw new Error("calendar_too_large");
+  if (!response.body) throw new Error("invalid_calendar");
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_ICAL_BYTES) {
+      await reader.cancel();
+      throw new Error("calendar_too_large");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { throw new Error("invalid_calendar"); }
+}
+
+function publicCalendarStatus(status) {
+  return {
+    state: status.state,
+    attemptedAt: status.attemptedAt,
+    lastSuccessAt: status.lastSuccessAt,
+    eventCount: status.eventCount,
+    errorCode: status.errorCode,
+  };
+}
+
+async function calendarResponse(bucket) {
+  const [calendar, status] = await Promise.all([readCalendar(bucket), readCalendarStatus(bucket)]);
+  return { ...calendar, status: publicCalendarStatus(status) };
+}
+
+function calendarErrorStatus(code) {
+  if (["not_configured", "invalid_configuration", "upstream_unavailable", "calendar_too_large", "invalid_calendar", "no_matching_events", "timeout"].includes(code)) return code;
+  return "upstream_unavailable";
+}
+
+async function refreshCalendar(request, env, fetchImpl, now) {
+  const bucket = requireBucket(env);
+  if (!bucket) return { status: 503, data: { error: "Calendar storage unavailable" } };
+  const origin = request.headers.get("origin");
+  if (origin && origin !== new URL(request.url).origin) return { status: 403, data: { error: "Cross-origin refresh is not allowed" } };
+  if (Number(request.headers.get("content-length") || 0) > 0) return { status: 400, data: { error: "Refresh does not accept a request body" } };
+  const currentMs = now();
+  const previous = await readCalendarStatus(bucket);
+  const lastSuccessMs = previous.lastSuccessAt ? Date.parse(previous.lastSuccessAt) : 0;
+  const lastAttemptMs = previous.attemptedAt ? Date.parse(previous.attemptedAt) : 0;
+  if (lastSuccessMs && currentMs - lastSuccessMs < CALENDAR_SUCCESS_COOLDOWN_MS) {
+    return { status: 200, data: { ok: true, cached: true, calendar: await calendarResponse(bucket) } };
+  }
+  if (lastAttemptMs && currentMs - lastAttemptMs < CALENDAR_FAILURE_BACKOFF_MS) {
+    const retryAfter = Math.ceil((CALENDAR_FAILURE_BACKOFF_MS - (currentMs - lastAttemptMs)) / 1000);
+    return { status: 429, headers: { "Retry-After": String(retryAfter) }, data: { error: "Please wait before retrying" } };
+  }
+  const attemptedAt = new Date(currentMs).toISOString();
+  const feedUrl = validateCalendarFeedUrl(env?.NTULEARN_ICAL_URL);
+  if (!feedUrl) {
+    const status = { state: "error", attemptedAt, lastSuccessAt: previous.lastSuccessAt, eventCount: previous.eventCount, errorCode: env?.NTULEARN_ICAL_URL ? "invalid_configuration" : "not_configured" };
+    await writeCalendarStatus(bucket, status);
+    return { status: 503, data: { error: "Calendar feed has not been configured" } };
+  }
+  await writeCalendarStatus(bucket, { state: "running", attemptedAt, lastSuccessAt: previous.lastSuccessAt, eventCount: previous.eventCount, errorCode: null });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetchImpl(feedUrl.toString(), { method: "GET", headers: { Accept: "text/calendar" }, redirect: "manual", signal: controller.signal });
+    if (response.status !== 200) throw new Error("upstream_unavailable");
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.toLowerCase().startsWith("text/calendar")) throw new Error("invalid_calendar");
+    const text = await readLimitedCalendar(response);
+    const parsed = await parseNtuLearnCalendar(text, currentMs);
+    if (parsed.events.length === 0) throw new Error("no_matching_events");
+    const snapshot = {
+      version: 1,
+      updatedAt: new Date(currentMs).toISOString(),
+      timezone: "Asia/Singapore",
+      source: "NTULearn shared calendar",
+      ignoredRecurring: parsed.ignoredRecurring,
+      events: parsed.events,
+    };
+    if (!isCalendarSnapshot(snapshot)) throw new Error("invalid_calendar");
+    await bucket.put(CALENDAR_KEY, JSON.stringify(snapshot), {
+      httpMetadata: { contentType: "application/json", cacheControl: "public, max-age=60" },
+      customMetadata: { purpose: "course-atlas-calendar", version: String(snapshot.version) },
+    });
+    await writeCalendarStatus(bucket, { state: "success", attemptedAt, lastSuccessAt: snapshot.updatedAt, eventCount: snapshot.events.length, errorCode: null });
+    return { status: 200, data: { ok: true, cached: false, calendar: await calendarResponse(bucket), totalEvents: parsed.totalEvents } };
+  } catch (error) {
+    const code = error?.name === "AbortError" ? "timeout" : calendarErrorStatus(error?.message);
+    await writeCalendarStatus(bucket, { state: "error", attemptedAt, lastSuccessAt: previous.lastSuccessAt, eventCount: previous.eventCount, errorCode: code });
+    return { status: code === "timeout" ? 504 : 502, data: { error: "Calendar refresh failed", code } };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function readCatalog(bucket) {
@@ -412,6 +734,15 @@ export default {
       if (!bucket) return json({ error: "Schedule storage unavailable" }, 503);
       const schedule = await readSchedule(bucket);
       return schedule ? publicJson(schedule) : json({ error: "Schedule has not been initialized" }, 503);
+    }
+    if (url.pathname === "/api/calendar" && request.method === "GET") {
+      const bucket = requireBucket(env);
+      if (!bucket) return json({ error: "Calendar storage unavailable" }, 503);
+      return json(await calendarResponse(bucket), 200, { "X-Content-Type-Options": "nosniff" });
+    }
+    if (url.pathname === "/api/calendar/refresh" && request.method === "POST") {
+      const result = await refreshCalendar(request, env, fetch, Date.now);
+      return json(result.data, result.status, { "X-Content-Type-Options": "nosniff", ...(result.headers || {}) });
     }
     if (url.pathname === "/api/upload" && request.method === "POST") return uploadFromBrowser(request, env, url);
     if (url.pathname === "/api/admin/materials" && request.method === "POST") return uploadFromSync(request, env, url);
