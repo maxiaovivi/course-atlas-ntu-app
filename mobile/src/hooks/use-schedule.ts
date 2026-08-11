@@ -7,15 +7,18 @@ export function useSchedule() {
   const [schedule, setSchedule] = useState<SchedulePayload>(emptySchedule);
   const [source, setSource] = useState<ScheduleSource>('empty');
   const [refreshing, setRefreshing] = useState(true);
+  const [error, setError] = useState(false);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
+    setError(false);
     try {
       const remote = await fetchSchedule();
       setSchedule(remote);
       setSource('live');
     } catch {
       // Keep the last verified cache visible when the backend is unavailable.
+      setError(true);
     } finally {
       setRefreshing(false);
     }
@@ -33,5 +36,5 @@ export function useSchedule() {
     return () => { active = false; };
   }, [refresh]);
 
-  return { schedule, source, refreshing, refresh };
+  return { schedule, source, refreshing, error, refresh };
 }

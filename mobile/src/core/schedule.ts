@@ -1,5 +1,27 @@
 export type LocationStatus = 'confirmed' | 'pending';
 
+export type AgendaItemType = 'quiz' | 'ca' | 'deadline' | 'academic' | 'notice';
+export type AgendaCertainty = 'confirmed' | 'inferred' | 'pending';
+
+export type AgendaItem = {
+  id: string;
+  type: AgendaItemType;
+  courseCode: string | null;
+  title: string;
+  start: string | null;
+  end: string | null;
+  location: string | null;
+  certainty: AgendaCertainty;
+  detail: string | null;
+};
+
+export type TeachingBreak = {
+  id: string;
+  start: string;
+  end: string;
+  label: string;
+};
+
 export type CourseSession = {
   code: string;
   name: string;
@@ -35,8 +57,12 @@ export type SchedulePayload = {
   timezone: 'Asia/Singapore';
   updatedAt: string;
   source: string;
+  teachingStart?: string;
+  teachingEnd?: string;
+  teachingBreaks?: TeachingBreak[];
   courses: CourseSession[];
   exceptions: ScheduleException[];
+  agenda?: AgendaItem[];
 };
 
 export const emptySchedule: SchedulePayload = {
@@ -46,8 +72,10 @@ export const emptySchedule: SchedulePayload = {
   timezone: 'Asia/Singapore',
   updatedAt: '',
   source: '',
+  teachingBreaks: [],
   courses: [],
   exceptions: [],
+  agenda: [],
 };
 
 export type NextClass = {
@@ -130,21 +158,32 @@ export function getNextClass(schedule: SchedulePayload, now = new Date()): NextC
     });
   }
 
+  const isTeachingDay = (key: string) => {
+    if (schedule.teachingStart && key < schedule.teachingStart) return false;
+    if (schedule.teachingEnd && key > schedule.teachingEnd) return false;
+    return !(schedule.teachingBreaks ?? []).some((item) => key >= item.start && key <= item.end);
+  };
+
   for (const course of schedule.courses) {
-    let dayDifference = (course.weekday - current.weekday + 7) % 7;
-    if (dayDifference === 0 && timeToMinutes(course.end) <= current.minutes) dayDifference = 7;
-    const occurrence = new Date(todayUtc + dayDifference * 86_400_000);
-    const occurrenceKey = dateKey(occurrence.getUTCFullYear(), occurrence.getUTCMonth() + 1, occurrence.getUTCDate());
-    if (schedule.exceptions.some((item) => item.courseCode === course.code && item.replacesDate === occurrenceKey)) continue;
-    candidates.push({
-      course,
-      dateKey: occurrenceKey,
-      dayText: dayDifference === 0 ? '今天' : dayDifference === 1 ? '明天' : course.dayLabel,
-      start: course.start,
-      end: course.end,
-      location: course.location,
-      minutesAway: dayDifference * 1440 + timeToMinutes(course.start) - current.minutes,
-    });
+    let firstDifference = (course.weekday - current.weekday + 7) % 7;
+    if (firstDifference === 0 && timeToMinutes(course.end) <= current.minutes) firstDifference = 7;
+    for (let week = 0; week < 24; week += 1) {
+      const dayDifference = firstDifference + week * 7;
+      const occurrence = new Date(todayUtc + dayDifference * 86_400_000);
+      const occurrenceKey = dateKey(occurrence.getUTCFullYear(), occurrence.getUTCMonth() + 1, occurrence.getUTCDate());
+      if (!isTeachingDay(occurrenceKey)) continue;
+      if (schedule.exceptions.some((item) => item.courseCode === course.code && item.replacesDate === occurrenceKey)) continue;
+      candidates.push({
+        course,
+        dateKey: occurrenceKey,
+        dayText: dayDifference === 0 ? '今天' : dayDifference === 1 ? '明天' : course.dayLabel,
+        start: course.start,
+        end: course.end,
+        location: course.location,
+        minutesAway: dayDifference * 1440 + timeToMinutes(course.start) - current.minutes,
+      });
+      break;
+    }
   }
 
   return candidates.sort((left, right) => left.minutesAway - right.minutesAway)[0] ?? null;
@@ -153,12 +192,111 @@ export function getNextClass(schedule: SchedulePayload, now = new Date()): NextC
 export function isSchedulePayload(value: unknown): value is SchedulePayload {
   if (!value || typeof value !== 'object') return false;
   const payload = value as Partial<SchedulePayload>;
+  const coursesValid = Array.isArray(payload.courses) && payload.courses.length <= 32
+    && payload.courses.every((item) => isCourseSession(item));
+  const courseCodes = new Set<string>(coursesValid
+    ? (payload.courses as CourseSession[]).map((item) => item.code)
+    : []);
+  const exceptionsValid = Array.isArray(payload.exceptions) && payload.exceptions.length <= 128
+    && payload.exceptions.every((item) => isScheduleException(item, courseCodes));
+  const agendaValid = payload.agenda === undefined || (Array.isArray(payload.agenda) && payload.agenda.length <= 256
+    && payload.agenda.every((item) => isAgendaItem(item)
+      && (item.courseCode === null || courseCodes.has(item.courseCode))));
+  const teachingBreaksValid = payload.teachingBreaks === undefined || (Array.isArray(payload.teachingBreaks)
+    && payload.teachingBreaks.length <= 32
+    && payload.teachingBreaks.every((item) => isTeachingBreak(item)));
+  const teachingBoundsValid = (payload.teachingStart === undefined && payload.teachingEnd === undefined)
+    || (isAgendaDate(payload.teachingStart) && isAgendaDate(payload.teachingEnd)
+      && typeof payload.teachingStart === 'string' && typeof payload.teachingEnd === 'string'
+      && /^20\d{2}-\d{2}-\d{2}$/.test(payload.teachingStart)
+      && /^20\d{2}-\d{2}-\d{2}$/.test(payload.teachingEnd)
+      && payload.teachingStart <= payload.teachingEnd);
   return payload.version === 1
     && payload.timezone === 'Asia/Singapore'
-    && typeof payload.academicYear === 'string'
-    && typeof payload.semester === 'number'
-    && typeof payload.updatedAt === 'string'
-    && typeof payload.source === 'string'
-    && Array.isArray(payload.courses)
-    && Array.isArray(payload.exceptions);
+    && typeof payload.academicYear === 'string' && payload.academicYear.length <= 32
+    && Number.isInteger(payload.semester) && Number(payload.semester) >= 1 && Number(payload.semester) <= 3
+    && typeof payload.updatedAt === 'string' && Number.isFinite(Date.parse(payload.updatedAt))
+    && typeof payload.source === 'string' && payload.source.length > 0 && payload.source.length <= 240
+    && coursesValid
+    && exceptionsValid
+    && agendaValid
+    && teachingBreaksValid
+    && teachingBoundsValid;
+}
+
+const AGENDA_TYPES = new Set<AgendaItemType>(['quiz', 'ca', 'deadline', 'academic', 'notice']);
+const AGENDA_CERTAINTIES = new Set<AgendaCertainty>(['confirmed', 'inferred', 'pending']);
+const COURSE_CODE_PATTERN = /^[A-Z]{2,4}\d{4}[A-Z]?$/;
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function isText(value: unknown, max: number) {
+  return typeof value === 'string' && value.length > 0 && value.length <= max;
+}
+
+function isCourseSession(value: unknown): value is CourseSession {
+  if (!value || typeof value !== 'object') return false;
+  const course = value as Partial<CourseSession>;
+  return typeof course.code === 'string' && COURSE_CODE_PATTERN.test(course.code)
+    && isText(course.name, 240) && isText(course.zh, 240)
+    && Number.isInteger(course.weekday) && Number(course.weekday) >= 0 && Number(course.weekday) <= 6
+    && isText(course.dayLabel, 8)
+    && typeof course.start === 'string' && TIME_PATTERN.test(course.start)
+    && typeof course.end === 'string' && TIME_PATTERN.test(course.end)
+    && isNullableText(course.section, 80)
+    && (course.category === 'General' || course.category === 'Specialized')
+    && isText(course.location, 240)
+    && (course.locationStatus === 'confirmed' || course.locationStatus === 'pending')
+    && isText(course.locationSource, 240)
+    && isNullableText(course.note, 500);
+}
+
+function isScheduleException(value: unknown, courseCodes: Set<string>): value is ScheduleException {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<ScheduleException>;
+  return typeof item.id === 'string' && /^[a-z0-9-]{8,120}$/.test(item.id)
+    && typeof item.courseCode === 'string' && courseCodes.has(item.courseCode)
+    && typeof item.date === 'string' && isAgendaDate(item.date)
+    && typeof item.start === 'string' && TIME_PATTERN.test(item.start)
+    && typeof item.end === 'string' && TIME_PATTERN.test(item.end)
+    && isText(item.label, 120) && isText(item.location, 240) && isText(item.note, 500)
+    && (item.replacesDate === undefined
+      || (typeof item.replacesDate === 'string' && isAgendaDate(item.replacesDate)));
+}
+
+function isAgendaDate(value: unknown) {
+  if (value === null) return true;
+  if (typeof value !== 'string' || value.length > 40) return false;
+  if (/^20\d{2}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    const check = new Date(Date.UTC(year, month - 1, day));
+    return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1 && check.getUTCDate() === day;
+  }
+  return Number.isFinite(Date.parse(value));
+}
+
+function isNullableText(value: unknown, max: number) {
+  return value === null || (typeof value === 'string' && value.length <= max);
+}
+
+function isTeachingBreak(value: unknown): value is TeachingBreak {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<TeachingBreak>;
+  return typeof item.id === 'string' && /^[a-z0-9-]{8,120}$/.test(item.id)
+    && typeof item.start === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(item.start) && isAgendaDate(item.start)
+    && typeof item.end === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(item.end) && isAgendaDate(item.end)
+    && item.start <= item.end
+    && typeof item.label === 'string' && item.label.length > 0 && item.label.length <= 120;
+}
+
+export function isAgendaItem(value: unknown): value is AgendaItem {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<AgendaItem>;
+  return typeof item.id === 'string' && /^[a-z0-9-]{8,120}$/.test(item.id)
+    && AGENDA_TYPES.has(item.type as AgendaItemType)
+    && (item.courseCode === null || (typeof item.courseCode === 'string' && COURSE_CODE_PATTERN.test(item.courseCode)))
+    && typeof item.title === 'string' && item.title.length > 0 && item.title.length <= 180
+    && isAgendaDate(item.start) && isAgendaDate(item.end)
+    && isNullableText(item.location, 240)
+    && AGENDA_CERTAINTIES.has(item.certainty as AgendaCertainty)
+    && isNullableText(item.detail, 1000);
 }

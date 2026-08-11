@@ -10,7 +10,7 @@ if (!UPLOAD_TOKEN) throw new Error("UPLOAD_TOKEN is required");
 
 const bytes = await readFile(schedulePath);
 const parsed = JSON.parse(bytes.toString("utf8"));
-if (parsed.version !== 1 || !Array.isArray(parsed.courses) || !Array.isArray(parsed.exceptions)) {
+if (parsed.version !== 1 || !Array.isArray(parsed.courses) || !Array.isArray(parsed.exceptions) || !Array.isArray(parsed.agenda)) {
   throw new Error("Schedule JSON does not match version 1");
 }
 
@@ -28,4 +28,4 @@ const response = await fetch(`${SITE_URL}/api/admin/schedule`, {
 });
 if (!response.ok) throw new Error(`Schedule update failed: ${response.status} ${await response.text()}`);
 const result = await response.json();
-console.log(`Schedule updated: ${result.courses} courses, ${result.exceptions} exceptions, ${result.updatedAt}`);
+console.log(`Schedule updated: ${result.courses} courses, ${result.exceptions} exceptions, ${result.agenda} agenda items, ${result.updatedAt}`);

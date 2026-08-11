@@ -2,18 +2,17 @@
   "expo": {
     "name": "知屿课表",
     "slug": "maxiaovivi",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
-    "icon": "./assets/images/course-atlas-icon.png",
+    "icon": "./assets/images/ink-tree-icon.png",
     "scheme": "courseatlasntu",
     "userInterfaceStyle": "light",
     "android": {
       "package": "com.maxiaovivi.courseatlasntu",
-      "versionCode": 1,
-      "edgeToEdgeEnabled": true,
+      "versionCode": 2,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/course-atlas-icon.png"
+        "backgroundColor": "#F8F8F5",
+        "foregroundImage": "./assets/images/ink-tree-icon.png"
       },
       "predictiveBackGestureEnabled": true
     },
@@ -26,9 +25,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#E6F9FD",
-          "image": "./assets/images/course-atlas-icon.png",
-          "imageWidth": 112
+          "backgroundColor": "#F8F8F5",
+          "image": "./assets/images/ink-tree-icon.png",
+          "imageWidth": 196
         }
       ]
     ],
@@ -42,7 +41,8 @@
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/cca13353-70fe-43e0-a256-3de3b76a8317"
     },
     "extra": {
       "router": {},

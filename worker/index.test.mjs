@@ -17,23 +17,24 @@ class MemoryBucket {
   }
 }
 
-test("an empty schedule bucket is initialized from the reviewed repository data", async () => {
+test("an empty schedule bucket is initialized from fictional repository data", async () => {
   const bucket = new MemoryBucket();
-  const source = JSON.parse(await readFile(new URL("../data/schedule.json", import.meta.url), "utf8"));
+  const source = JSON.parse(await readFile(new URL("../data/schedule.example.json", import.meta.url), "utf8"));
   assert.deepEqual(DEFAULT_SCHEDULE, source);
 
   const response = await worker.fetch(new Request("https://example.test/api/schedule"), { FILES: bucket });
   assert.equal(response.status, 200);
   const schedule = await response.json();
-  assert.equal(schedule.courses.length, 4);
+  assert.equal(schedule.courses.length, 2);
   assert.equal(schedule.exceptions.length, 1);
+  assert.equal(schedule.agenda.length, 3);
   assert.notEqual(schedule.updatedAt, source.updatedAt);
   assert.ok(bucket.objects.has("app/schedule-v1.json"));
 });
 
 test("schedule is updated in storage and then served publicly", async () => {
   const bucket = new MemoryBucket();
-  const body = await readFile(new URL("../data/schedule.json", import.meta.url));
+  const body = await readFile(new URL("../data/schedule.example.json", import.meta.url));
   const env = { FILES: bucket, UPLOAD_TOKEN: "test-only-token" };
   const update = await worker.fetch(new Request("https://example.test/api/admin/schedule", {
     method: "PUT",
@@ -42,16 +43,75 @@ test("schedule is updated in storage and then served publicly", async () => {
   }), env);
   assert.equal(update.status, 200);
   const result = await update.json();
-  assert.equal(result.courses, 4);
+  assert.equal(result.courses, 2);
   assert.equal(result.exceptions, 1);
+  assert.equal(result.agenda, 3);
 
   const response = await worker.fetch(new Request("https://example.test/api/schedule"), env);
   assert.equal(response.status, 200);
   assert.match(response.headers.get("cache-control"), /max-age=60/);
   const schedule = await response.json();
-  assert.equal(schedule.courses[0].code, "EE6497");
-  assert.equal(schedule.exceptions[0].replacesDate, "2026-08-10");
-  assert.notEqual(schedule.updatedAt, "2026-08-11T00:00:00+08:00");
+  assert.equal(schedule.courses[0].code, "EX1001");
+  assert.equal(schedule.exceptions[0].replacesDate, "2030-08-18");
+  assert.equal(schedule.agenda[0].title, "Fictional Quiz 1");
+  assert.notEqual(schedule.updatedAt, "2030-08-01T00:00:00+08:00");
+});
+
+test("single or chunked schedule secrets take priority and do not require storage", async () => {
+  const secretSchedule = structuredClone(DEFAULT_SCHEDULE);
+  secretSchedule.source = "Fictional Sites secret fixture";
+  secretSchedule.courses[0].location = "Secret Example Hall";
+  const fallbackSchedule = structuredClone(DEFAULT_SCHEDULE);
+  fallbackSchedule.source = "Fictional R2 fallback fixture";
+  const bucket = new MemoryBucket();
+  bucket.objects.set("app/schedule-v1.json", JSON.stringify(fallbackSchedule));
+  const response = await worker.fetch(new Request("https://example.test/api/schedule"), {
+    FILES: bucket,
+    COURSE_ATLAS_DATA_JSON: JSON.stringify(secretSchedule),
+  });
+  assert.equal(response.status, 200);
+  const schedule = await response.json();
+  assert.equal(schedule.source, "Fictional Sites secret fixture");
+  assert.equal(schedule.courses[0].location, "Secret Example Hall");
+  assert.equal(schedule.agenda.length, 3);
+
+  const withoutStorage = await worker.fetch(new Request("https://example.test/api/schedule"), {
+    COURSE_ATLAS_DATA_JSON: JSON.stringify(secretSchedule),
+  });
+  assert.equal(withoutStorage.status, 200);
+
+  const encoded = JSON.stringify(secretSchedule);
+  const midpoint = Math.ceil(encoded.length / 2);
+  const chunked = await worker.fetch(new Request("https://example.test/api/schedule"), {
+    COURSE_ATLAS_DATA_JSON_1: encoded.slice(0, midpoint),
+    COURSE_ATLAS_DATA_JSON_2: encoded.slice(midpoint),
+  });
+  assert.equal(chunked.status, 200);
+  assert.equal((await chunked.json()).courses[0].location, "Secret Example Hall");
+});
+
+test("an invalid configured schedule secret fails closed instead of exposing fallback data", async () => {
+  const bucket = new MemoryBucket();
+  bucket.objects.set("app/schedule-v1.json", JSON.stringify(DEFAULT_SCHEDULE));
+  const response = await worker.fetch(new Request("https://example.test/api/schedule"), {
+    FILES: bucket,
+    COURSE_ATLAS_DATA_JSON: JSON.stringify({ ...DEFAULT_SCHEDULE, agenda: [{ id: "invalid" }] }),
+  });
+  assert.equal(response.status, 503);
+
+  const invalidTeachingWindow = structuredClone(DEFAULT_SCHEDULE);
+  invalidTeachingWindow.teachingBreaks[0].start = "2030-02-31";
+  const invalidDateResponse = await worker.fetch(new Request("https://example.test/api/schedule"), {
+    FILES: bucket,
+    COURSE_ATLAS_DATA_JSON: JSON.stringify(invalidTeachingWindow),
+  });
+  assert.equal(invalidDateResponse.status, 503);
+
+  const nonContiguousChunks = await worker.fetch(new Request("https://example.test/api/schedule"), {
+    FILES: bucket,
+    COURSE_ATLAS_DATA_JSON_2: JSON.stringify(DEFAULT_SCHEDULE),
+  });
+  assert.equal(nonContiguousChunks.status, 503);
 });
 
 test("schedule update rejects missing credentials and invalid data", async () => {

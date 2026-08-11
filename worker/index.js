@@ -20,84 +20,99 @@ let calendarRefreshInFlight = null;
 
 export const DEFAULT_SCHEDULE = {
   version: 1,
-  academicYear: "AY2026-27",
+  academicYear: "AY2030-31",
   semester: 1,
   timezone: "Asia/Singapore",
-  updatedAt: "2026-08-11T00:00:00+08:00",
-  source: "AY2026-27 S1 CCA Student Timetable V2",
+  updatedAt: "2030-08-01T00:00:00+08:00",
+  source: "Fictional example data",
+  teachingStart: "2030-08-12",
+  teachingEnd: "2030-11-16",
+  teachingBreaks: [
+    {
+      id: "fictional-midterm-break",
+      start: "2030-09-29",
+      end: "2030-10-05",
+      label: "Fictional midterm break",
+    },
+  ],
   courses: [
     {
-      code: "EE6497",
-      name: "Pattern Recognition & Deep Learning",
-      zh: "模式识别与深度学习",
+      code: "EX1001",
+      name: "Fictional Systems Studio",
+      zh: "示例系统课程",
       weekday: 1,
       dayLabel: "周一",
-      start: "19:00",
-      end: "22:00",
+      start: "09:00",
+      end: "10:30",
       section: null,
       category: "General",
-      location: "待公布",
-      locationStatus: "pending",
-      locationSource: "GSCRS / NTULearn",
-      note: "学院课表备注时间为 19:00–22:00。",
+      location: "Example Hall A",
+      locationStatus: "confirmed",
+      locationSource: "Fictional fixture",
+      note: "This course exists only to exercise the public schema.",
     },
     {
-      code: "EE6407",
-      name: "Genetic Algorithms & Machine Learning",
-      zh: "遗传算法与机器学习",
-      weekday: 2,
-      dayLabel: "周二",
-      start: "18:30",
-      end: "21:30",
-      section: "Group A",
-      category: "Specialized",
-      location: "待公布",
-      locationStatus: "pending",
-      locationSource: "GSCRS / NTULearn",
-      note: "已按晚间 Group A 排列；Group B 为周二 09:30–12:30。",
-    },
-    {
-      code: "EE6221",
-      name: "Robotics & Intelligent Sensors",
-      zh: "机器人与智能传感",
+      code: "EX2002",
+      name: "Fictional Data Methods",
+      zh: "示例数据方法",
       weekday: 3,
       dayLabel: "周三",
-      start: "18:30",
-      end: "21:30",
-      section: null,
+      start: "14:00",
+      end: "15:30",
+      section: "Group A",
       category: "Specialized",
-      location: "待公布",
+      location: "To be announced",
       locationStatus: "pending",
-      locationSource: "GSCRS / NTULearn",
-      note: null,
-    },
-    {
-      code: "EE6406",
-      name: "Analytic & Ensemble Machine Learning",
-      zh: "分析与集成学习",
-      weekday: 4,
-      dayLabel: "周四",
-      start: "18:30",
-      end: "21:30",
-      section: null,
-      category: "General",
-      location: "待公布",
-      locationStatus: "pending",
-      locationSource: "GSCRS / NTULearn",
+      locationSource: "Fictional fixture",
       note: null,
     },
   ],
   exceptions: [
     {
-      id: "ee6497-2026-08-11-makeup",
-      courseCode: "EE6497",
-      date: "2026-08-11",
-      start: "13:00",
-      end: "16:00",
-      label: "Week 1 补课",
-      location: "Microsoft Teams · 在线",
-      note: "替代 8 月 10 日因公共假期取消的首次面授课。",
-      replacesDate: "2026-08-10",
+      id: "ex1001-fictional-makeup",
+      courseCode: "EX1001",
+      date: "2030-08-19",
+      start: "11:00",
+      end: "12:00",
+      label: "Fictional make-up class",
+      location: "Example Video Room",
+      note: "Fixture content; not a real class.",
+      replacesDate: "2030-08-18",
+    },
+  ],
+  agenda: [
+    {
+      id: "ex1001-fictional-quiz",
+      type: "quiz",
+      courseCode: "EX1001",
+      title: "Fictional Quiz 1",
+      start: "2030-09-10T01:30:00.000Z",
+      end: "2030-09-10T02:00:00.000Z",
+      location: "Example Hall A",
+      certainty: "confirmed",
+      detail: "Fixture content; not a real assessment.",
+    },
+    {
+      id: "fictional-recess-week",
+      type: "academic",
+      courseCode: null,
+      title: "Fictional recess week",
+      start: "2030-09-29",
+      end: "2030-10-05",
+      location: null,
+      certainty: "confirmed",
+      detail: "Fixture content; not a real academic-calendar entry.",
+    },
+    {
+      id: "ex2002-fictional-notice",
+      type: "notice",
+      courseCode: "EX2002",
+      title: "Fictional equipment notice",
+      start: null,
+      end: null,
+      location: null,
+      certainty: "pending",
+      detail: "Fixture content; not a real course notice.",
     },
   ],
 };
@@ -140,12 +155,22 @@ function isSchedule(value) {
   if (!value || typeof value !== "object" || value.version !== 1 || value.timezone !== "Asia/Singapore") return false;
   if (typeof value.academicYear !== "string" || value.academicYear.length > 32) return false;
   if (!Number.isInteger(value.semester) || value.semester < 1 || value.semester > 3) return false;
+  if (typeof value.updatedAt !== "string" || !Number.isFinite(Date.parse(value.updatedAt))) return false;
   if (typeof value.source !== "string" || !value.source || value.source.length > 240) return false;
-  if (!Array.isArray(value.courses) || value.courses.length > 32 || !Array.isArray(value.exceptions) || value.exceptions.length > 128) return false;
+  if (!Array.isArray(value.courses) || value.courses.length > 32
+    || !Array.isArray(value.exceptions) || value.exceptions.length > 128
+    || !Array.isArray(value.agenda) || value.agenda.length > 256) return false;
   const time = /^([01]\d|2[0-3]):[0-5]\d$/;
-  const date = /^20\d{2}-[01]\d-[0-3]\d$/;
   const text = (item, key, max = 240) => typeof item[key] === "string" && item[key].length > 0 && item[key].length <= max;
   const nullableText = (item, key, max = 500) => item[key] === null || (typeof item[key] === "string" && item[key].length <= max);
+  const teachingBoundsConfigured = value.teachingStart !== undefined || value.teachingEnd !== undefined;
+  if (teachingBoundsConfigured && (!isCalendarDate(value.teachingStart) || !isCalendarDate(value.teachingEnd)
+    || value.teachingStart > value.teachingEnd)) return false;
+  if (value.teachingBreaks !== undefined && (!Array.isArray(value.teachingBreaks) || value.teachingBreaks.length > 32
+    || !value.teachingBreaks.every((item) => item && typeof item === "object"
+      && /^[a-z0-9-]{8,120}$/.test(item.id)
+      && isCalendarDate(item.start) && isCalendarDate(item.end) && item.start <= item.end
+      && text(item, "label", 120)))) return false;
   if (!value.courses.every((course) => course && typeof course === "object"
     && /^[A-Z]{2,4}\d{4}[A-Z]?$/.test(course.code)
     && text(course, "name") && text(course, "zh")
@@ -155,15 +180,65 @@ function isSchedule(value) {
     && text(course, "location") && ["confirmed", "pending"].includes(course.locationStatus)
     && text(course, "locationSource") && nullableText(course, "note"))) return false;
   const courseCodes = new Set(value.courses.map((course) => course.code));
-  return value.exceptions.every((exception) => exception && typeof exception === "object"
+  const validExceptions = value.exceptions.every((exception) => exception && typeof exception === "object"
     && /^[a-z0-9-]{8,120}$/.test(exception.id)
-    && courseCodes.has(exception.courseCode) && date.test(exception.date)
+    && courseCodes.has(exception.courseCode) && isCalendarDate(exception.date)
     && time.test(exception.start) && time.test(exception.end)
     && text(exception, "label", 120) && text(exception, "location") && text(exception, "note", 500)
-    && (exception.replacesDate === undefined || date.test(exception.replacesDate)));
+    && (exception.replacesDate === undefined || isCalendarDate(exception.replacesDate)));
+  if (!validExceptions) return false;
+  return value.agenda.every((item) => item && typeof item === "object"
+    && /^[a-z0-9-]{8,120}$/.test(item.id)
+    && ["quiz", "ca", "deadline", "academic", "notice"].includes(item.type)
+    && (item.courseCode === null || courseCodes.has(item.courseCode))
+    && text(item, "title", 180)
+    && (item.start === null || isIsoOrDate(item.start))
+    && (item.end === null || isIsoOrDate(item.end))
+    && (item.start === null || item.end === null || Date.parse(item.end) >= Date.parse(item.start))
+    && nullableText(item, "location", 240)
+    && ["confirmed", "inferred", "pending"].includes(item.certainty)
+    && nullableText(item, "detail", 1000));
 }
 
-async function readSchedule(bucket) {
+function scheduleFromEnvironment(env) {
+  const single = env?.COURSE_ATLAS_DATA_JSON;
+  const singleConfigured = single !== undefined && single !== null && single !== "";
+  const chunks = Array.from({ length: 8 }, (_, index) => env?.[`COURSE_ATLAS_DATA_JSON_${index + 1}`]);
+  const chunkConfigured = chunks.some((value) => value !== undefined && value !== null && value !== "");
+  if (!singleConfigured && !chunkConfigured) return { configured: false, schedule: null };
+  if (singleConfigured && chunkConfigured) return { configured: true, schedule: null };
+
+  let raw = single;
+  if (chunkConfigured) {
+    const contiguous = [];
+    let reachedEnd = false;
+    for (const value of chunks) {
+      const present = value !== undefined && value !== null && value !== "";
+      if (!present) {
+        reachedEnd = true;
+        continue;
+      }
+      if (reachedEnd || typeof value !== "string" || new TextEncoder().encode(value).length > 4 * 1024) {
+        return { configured: true, schedule: null };
+      }
+      contiguous.push(value);
+    }
+    raw = contiguous.join("");
+  }
+
+  if (typeof raw !== "string" || new TextEncoder().encode(raw).length > 128 * 1024) return { configured: true, schedule: null };
+  try {
+    const schedule = JSON.parse(raw);
+    return { configured: true, schedule: isSchedule(schedule) ? schedule : null };
+  } catch {
+    return { configured: true, schedule: null };
+  }
+}
+
+async function readSchedule(bucket, env) {
+  const environment = scheduleFromEnvironment(env);
+  if (environment.configured) return environment.schedule;
+  if (!bucket) return null;
   const object = await bucket.get(SCHEDULE_KEY);
   if (!object) {
     const schedule = { ...DEFAULT_SCHEDULE, updatedAt: new Date().toISOString() };
@@ -202,7 +277,7 @@ async function updateSchedule(request, env) {
     httpMetadata: { contentType: "application/json", cacheControl: "public, max-age=60" },
     customMetadata: { purpose: "course-atlas-schedule", version: String(schedule.version) },
   });
-  return json({ ok: true, updatedAt: schedule.updatedAt, courses: schedule.courses.length, exceptions: schedule.exceptions.length });
+  return json({ ok: true, updatedAt: schedule.updatedAt, courses: schedule.courses.length, exceptions: schedule.exceptions.length, agenda: schedule.agenda.length });
 }
 
 function emptyCalendar() {
@@ -214,7 +289,20 @@ function emptyCalendarStatus() {
 }
 
 function isIsoOrDate(value) {
-  return typeof value === "string" && (/^20\d{2}-[01]\d-[0-3]\d$/.test(value) || Number.isFinite(Date.parse(value)));
+  if (typeof value !== "string") return false;
+  const datePrefix = /^(20\d{2})-(\d{2})-(\d{2})(?:$|T)/.exec(value);
+  if (!datePrefix || !isCalendarDate(datePrefix[0].slice(0, 10))) return false;
+  return datePrefix[0].length === 10 || Number.isFinite(Date.parse(value));
+}
+
+function isCalendarDate(value) {
+  const match = /^(20\d{2})-(\d{2})-(\d{2})$/.exec(value || "");
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const check = new Date(Date.UTC(year, month - 1, day));
+  return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1 && check.getUTCDate() === day;
 }
 
 function isCalendarSnapshot(value) {
@@ -770,9 +858,8 @@ export default {
     }
     if (url.pathname === "/api/schedule" && request.method === "GET") {
       const bucket = requireBucket(env);
-      if (!bucket) return json({ error: "Schedule storage unavailable" }, 503);
-      const schedule = await readSchedule(bucket);
-      return schedule ? publicJson(schedule) : json({ error: "Schedule has not been initialized" }, 503);
+      const schedule = await readSchedule(bucket, env);
+      return schedule ? publicJson(schedule) : json({ error: "Schedule data is unavailable or invalid" }, 503);
     }
     if (url.pathname === "/api/calendar" && request.method === "GET") {
       const bucket = requireBucket(env);

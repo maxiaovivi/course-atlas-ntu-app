@@ -12,3 +12,4 @@ storage-state*.json
 storageState*.json
 browser-profile/
 playwright-profile/
+data/schedule.json

@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "academicYear": "AY2030-31",
+  "semester": 1,
+  "timezone": "Asia/Singapore",
+  "updatedAt": "2030-08-01T00:00:00+08:00",
+  "source": "Fictional example data",
+  "teachingStart": "2030-08-12",
+  "teachingEnd": "2030-11-16",
+  "teachingBreaks": [
+    {
+      "id": "fictional-midterm-break",
+      "start": "2030-09-29",
+      "end": "2030-10-05",
+      "label": "Fictional midterm break"
+    }
+  ],
+  "courses": [
+    {
+      "code": "EX1001",
+      "name": "Fictional Systems Studio",
+      "zh": "示例系统课程",
+      "weekday": 1,
+      "dayLabel": "周一",
+      "start": "09:00",
+      "end": "10:30",
+      "section": null,
+      "category": "General",
+      "location": "Example Hall A",
+      "locationStatus": "confirmed",
+      "locationSource": "Fictional fixture",
+      "note": "This course exists only to exercise the public schema."
+    },
+    {
+      "code": "EX2002",
+      "name": "Fictional Data Methods",
+      "zh": "示例数据方法",
+      "weekday": 3,
+      "dayLabel": "周三",
+      "start": "14:00",
+      "end": "15:30",
+      "section": "Group A",
+      "category": "Specialized",
+      "location": "To be announced",
+      "locationStatus": "pending",
+      "locationSource": "Fictional fixture",
+      "note": null
+    }
+  ],
+  "exceptions": [
+    {
+      "id": "ex1001-fictional-makeup",
+      "courseCode": "EX1001",
+      "date": "2030-08-19",
+      "start": "11:00",
+      "end": "12:00",
+      "label": "Fictional make-up class",
+      "location": "Example Video Room",
+      "note": "Fixture content; not a real class.",
+      "replacesDate": "2030-08-18"
+    }
+  ],
+  "agenda": [
+    {
+      "id": "ex1001-fictional-quiz",
+      "type": "quiz",
+      "courseCode": "EX1001",
+      "title": "Fictional Quiz 1",
+      "start": "2030-09-10T01:30:00.000Z",
+      "end": "2030-09-10T02:00:00.000Z",
+      "location": "Example Hall A",
+      "certainty": "confirmed",
+      "detail": "Fixture content; not a real assessment."
+    },
+    {
+      "id": "fictional-recess-week",
+      "type": "academic",
+      "courseCode": null,
+      "title": "Fictional recess week",
+      "start": "2030-09-29",
+      "end": "2030-10-05",
+      "location": null,
+      "certainty": "confirmed",
+      "detail": "Fixture content; not a real academic-calendar entry."
+    },
+    {
+      "id": "ex2002-fictional-notice",
+      "type": "notice",
+      "courseCode": "EX2002",
+      "title": "Fictional equipment notice",
+      "start": null,
+      "end": null,
+      "location": null,
+      "certainty": "pending",
+      "detail": "Fixture content; not a real course notice."
+    }
+  ]
+}
