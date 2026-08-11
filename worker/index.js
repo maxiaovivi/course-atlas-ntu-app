@@ -176,7 +176,7 @@ function isSchedule(value) {
     && text(course, "name") && text(course, "zh")
     && Number.isInteger(course.weekday) && course.weekday >= 0 && course.weekday <= 6
     && text(course, "dayLabel", 8) && time.test(course.start) && time.test(course.end)
-    && nullableText(course, "section", 80) && text(course, "category", 80)
+    && nullableText(course, "section", 80) && ["General", "Specialized"].includes(course.category)
     && text(course, "location") && ["confirmed", "pending"].includes(course.locationStatus)
     && text(course, "locationSource") && nullableText(course, "note"))) return false;
   const courseCodes = new Set(value.courses.map((course) => course.code));
