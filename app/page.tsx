@@ -136,6 +136,7 @@ export default function Home() {
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
   const [uploadMessage, setUploadMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const handledMaterialLinkRef = useRef<string | null>(null);
 
   const loadLibrary = useCallback(async () => {
     const response = await fetch("/api/library", { cache: "no-store" });
@@ -153,15 +154,63 @@ export default function Home() {
   }, [loadLibrary]);
 
   useEffect(() => {
+    const storedMaterialId = window.sessionStorage.getItem("course-atlas-material-return");
+    window.sessionStorage.removeItem("course-atlas-material-return");
+    if (!storedMaterialId || !/^[a-z0-9-]{16,96}$/.test(storedMaterialId)) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("material")) return;
+    url.searchParams.set("material", storedMaterialId);
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  const clearMaterialQuery = useCallback(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("material")) return;
+    url.searchParams.delete("material");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  const closePending = useCallback(() => {
+    setPending(null);
+    setConfirmError("");
+    clearMaterialQuery();
+  }, [clearMaterialQuery]);
+
+  const closeReader = useCallback(() => {
+    setReader(null);
+    setReaderUrl("");
+    clearMaterialQuery();
+  }, [clearMaterialQuery]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const materialId = new URLSearchParams(window.location.search).get("material");
+    if (!materialId || handledMaterialLinkRef.current === materialId) return;
+    handledMaterialLinkRef.current = materialId;
+    const material = materialId.length <= 256 ? materials.find((item) => item.id === materialId) : undefined;
+    if (!material) {
+      clearMaterialQuery();
+      return;
+    }
+    setCourseCode(material.course);
+    setUploadCourse(material.course);
+    setShelf(materialShelves.includes(material.shelf) ? material.shelf : "All");
+    setQuery("");
+    setConfirmError("");
+    setPendingAction("read");
+    setPending(material);
+  }, [clearMaterialQuery, loaded, materials]);
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (reader) setReader(null);
-      else if (pending) setPending(null);
+      if (reader) closeReader();
+      else if (pending) closePending();
       else if (uploadOpen) setUploadOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [reader, pending, uploadOpen]);
+  }, [closePending, closeReader, reader, pending, uploadOpen]);
 
   const course = courses.find((item) => item.code === courseCode) ?? courses[0];
   const visible = useMemo(() => {
@@ -176,7 +225,11 @@ export default function Home() {
 
   const confirmAndProceed = async () => {
     if (!pending) return;
-    if (!pending.readable) { window.location.href = "/signin-with-chatgpt"; return; }
+    if (!pending.readable) {
+      window.sessionStorage.setItem("course-atlas-material-return", pending.id);
+      window.location.href = "/signin-with-chatgpt";
+      return;
+    }
     setConfirming(true);
     setConfirmError("");
     try {
@@ -191,6 +244,7 @@ export default function Home() {
         document.body.appendChild(link);
         link.click();
         link.remove();
+        clearMaterialQuery();
       } else {
         setReaderUrl(materialUrl);
         setReader(pending);
@@ -277,8 +331,8 @@ export default function Home() {
 
     <footer className="shell"><span>知屿 · Course Atlas</span><p>课程资料版权归南洋理工大学（NTU）所有，仅供 NTU 学生学习交流。</p><small>NON-COMMERCIAL STUDY USE · 2026</small></footer>
 
-    {pending && <div className="overlay" onMouseDown={() => setPending(null)}><section className="confirm-card" onMouseDown={(event) => event.stopPropagation()}>
-      <button className="close" onClick={() => setPending(null)}>×</button><span className="confirm-icon"><ShieldIcon /></span><small>加载前确认</small><h2>{pending.title}</h2>
+    {pending && <div className="overlay" onMouseDown={closePending}><section className="confirm-card" onMouseDown={(event) => event.stopPropagation()}>
+      <button className="close" onClick={closePending}>×</button><span className="confirm-icon"><ShieldIcon /></span><small>加载前确认</small><h2>{pending.title}</h2>
       <div className="confirm-meta"><span>{pending.course}</span><span>{pending.shelf}</span><span>{formatBytes(pending.size)}</span></div>
       <p>{pending.visibility === "public" ? "这份 PDF 已被上传者标记为可公开分享。确认后，阅读器才会开始请求文件内容。" : pending.readable ? "这是受保护的课程资料。确认仅用于个人学习，并遵守课程材料的使用范围后再加载。" : "这份 NTU 课程资料没有公开分发许可。公共访客可以浏览目录，但只有资料库所有者登录后才能读取。"}</p>
       <div className="copyright-note"><strong>版权与使用范围</strong><span>课程资料版权归南洋理工大学（NTU）所有，仅供 NTU 学生学习交流。禁止商业使用或再次传播。</span></div>
@@ -302,7 +356,7 @@ export default function Home() {
     </section></div>}
 
     {reader && <div className="reader-overlay"><section className="reader-shell">
-      <header><div><span className="reader-file-icon"><FileIcon /></span><span><small>{reader.course} · {reader.shelf}</small><strong>{reader.title}</strong></span></div><div className="reader-tools"><button onClick={() => setZoom((value) => Math.max(60, value - 10))}>−</button><span>{zoom}%</span><button onClick={() => setZoom((value) => Math.min(180, value + 10))}>＋</button><a className="reader-download" href={`${readerUrl}&download=1`} download={reader.title} title="下载 PDF" aria-label={`下载 ${reader.title}`}><DownloadIcon /></a><button className="reader-close" onClick={() => setReader(null)}>×</button></div></header>
+      <header><div><span className="reader-file-icon"><FileIcon /></span><span><small>{reader.course} · {reader.shelf}</small><strong>{reader.title}</strong></span></div><div className="reader-tools"><button onClick={() => setZoom((value) => Math.max(60, value - 10))}>−</button><span>{zoom}%</span><button onClick={() => setZoom((value) => Math.min(180, value + 10))}>＋</button><a className="reader-download" href={`${readerUrl}&download=1`} download={reader.title} title="下载 PDF" aria-label={`下载 ${reader.title}`}><DownloadIcon /></a><button className="reader-close" onClick={closeReader}>×</button></div></header>
       <div className="reader-stage"><PdfCanvas url={readerUrl} page={page} zoom={zoom} onPageCount={setPageCount} /></div>
       <footer><button onClick={() => setPage((value) => Math.max(1, value - 1))}>←</button><span>PAGE <strong>{page}</strong> / {pageCount}</span><button onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>→</button></footer>
     </section></div>}

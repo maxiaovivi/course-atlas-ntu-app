@@ -4,17 +4,20 @@ import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
+import * as Linking from 'expo-linking';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { interpolate, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 
 import { agendaDateParts, agendaTypeLabel, AgendaViewItem } from '@/core/agenda';
 import { singaporeDateKey } from '@/core/calendar';
+import { formatMaterialSize, LibraryMaterial, MaterialShelf } from '@/core/library';
 import { AcademicCalendarItem, CourseBrief, CourseSession } from '@/core/schedule';
+import { PressableScale } from '@/components/pressable-scale';
 import { palette } from '@/constants/palette';
 import { typography } from '@/constants/typography';
 
 export type DetailSelection =
-  | { kind: 'course'; course: CourseSession; brief: CourseBrief | null }
+  | { kind: 'course'; course: CourseSession; brief: CourseBrief | null; materials: LibraryMaterial[] }
   | { kind: 'agenda'; item: AgendaViewItem }
   | { kind: 'calendar'; items: AcademicCalendarItem[] };
 
@@ -71,7 +74,45 @@ function CourseBriefBlock({
   );
 }
 
-function CourseDetails({ course, brief }: { course: CourseSession; brief: CourseBrief | null }) {
+const SHELF_LABELS: Record<MaterialShelf, string> = {
+  Lectures: '讲义',
+  Assignments: '作业',
+  'Study aids': '辅助',
+  Quiz: '测验',
+  Exams: '试卷',
+};
+
+function CourseMaterials({ materials }: { materials: LibraryMaterial[] }) {
+  if (materials.length === 0) return null;
+  const displayTitle = (material: LibraryMaterial) => material.title
+    .replace(/\.pdf$/i, '')
+    .replace(new RegExp(`^${material.course}[\\s_·-]*`, 'i'), '');
+  return (
+    <View style={styles.materialSection}>
+      <View style={styles.materialHeading}>
+        <Text style={styles.materialHeadingText}>资料</Text>
+        <Text style={styles.materialCount}>{materials.length}</Text>
+      </View>
+      <View style={styles.materialList}>
+        {materials.map((material, index) => <PressableScale
+          key={material.id}
+          accessibilityRole="link"
+          accessibilityLabel={`${displayTitle(material)}，${SHELF_LABELS[material.shelf]}，${formatMaterialSize(material.size)}${material.readable ? '' : '，需要所有者登录'}`}
+          style={[styles.materialRow, index < materials.length - 1 && styles.materialBorder]}
+          onPress={() => void Linking.openURL(`https://fatemeeting.site/?material=${encodeURIComponent(material.id)}`)}>
+          <View style={styles.pdfMark}><Text style={styles.pdfMarkText}>PDF</Text></View>
+          <View style={styles.materialCopy}>
+            <Text numberOfLines={2} style={styles.materialTitle}>{displayTitle(material)}</Text>
+            <Text style={styles.materialMeta}>{SHELF_LABELS[material.shelf]} · {formatMaterialSize(material.size)}</Text>
+          </View>
+          <Text style={styles.materialArrow}>›</Text>
+        </PressableScale>)}
+      </View>
+    </View>
+  );
+}
+
+function CourseDetails({ course, brief, materials }: { course: CourseSession; brief: CourseBrief | null; materials: LibraryMaterial[] }) {
   const now = new Date();
   const stale = Boolean(brief?.nextDate && (
     brief.nextDate < singaporeDateKey(now)
@@ -99,6 +140,7 @@ function CourseDetails({ course, brief }: { course: CourseSession; brief: Course
       </View> : <View accessible accessibilityLabel="课程内容未更新" style={styles.briefMissing}>
         <Text style={styles.briefMissingText}>未更新</Text>
       </View>}
+      <CourseMaterials materials={materials} />
       {(course.note || course.locationSource) && <Disclosure>
         {course.note && <Text style={styles.explanation}>{course.note}</Text>}
         {course.locationSource && <Text style={styles.sourceText}>{course.locationSource}</Text>}
@@ -235,7 +277,7 @@ export function DetailSheet({ selection, visible, onClose }: Props) {
           </View>
           <ScrollView showsVerticalScrollIndicator={false} bounces={false} contentContainerStyle={styles.content}>
             {shownSelection.kind === 'course'
-              ? <CourseDetails key={shownSelection.course.code} course={shownSelection.course} brief={shownSelection.brief} />
+              ? <CourseDetails key={shownSelection.course.code} course={shownSelection.course} brief={shownSelection.brief} materials={shownSelection.materials} />
               : shownSelection.kind === 'agenda'
                 ? <AgendaDetails key={shownSelection.item.id} item={shownSelection.item} />
                 : <CalendarDetails items={shownSelection.items} />}
@@ -273,6 +315,19 @@ const styles = StyleSheet.create({
   briefEmpty: { marginTop: 12, color: palette.muted, fontSize: 14, lineHeight: 20, fontFamily: typography.regular },
   briefMissing: { minHeight: 92, marginTop: 25, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.line, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.62)' },
   briefMissingText: { color: palette.muted, fontSize: 14, lineHeight: 20, fontFamily: typography.regular },
+  materialSection: { marginTop: 24 },
+  materialHeading: { minHeight: 29, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  materialHeadingText: { color: palette.ink, fontSize: 16, lineHeight: 22, fontFamily: typography.medium },
+  materialCount: { color: palette.muted, fontSize: 12, lineHeight: 17, fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
+  materialList: { marginTop: 8, paddingHorizontal: 14, borderWidth: 1, borderColor: palette.line, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.72)' },
+  materialRow: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  materialBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.line },
+  pdfMark: { width: 35, height: 35, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: '#E2F7FA' },
+  pdfMarkText: { color: palette.cyanDeep, fontSize: 9, lineHeight: 12, fontFamily: typography.medium, letterSpacing: 0.4 },
+  materialCopy: { flex: 1, minWidth: 0, paddingVertical: 10 },
+  materialTitle: { color: palette.ink, fontSize: 13, lineHeight: 18, fontFamily: typography.medium },
+  materialMeta: { marginTop: 3, color: palette.muted, fontSize: 10, lineHeight: 14, fontFamily: typography.regular, fontVariant: ['tabular-nums'] },
+  materialArrow: { width: 13, color: '#70A8B4', textAlign: 'right', fontSize: 20, lineHeight: 25, fontFamily: typography.regular },
   agendaHeaderRow: { minHeight: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   agendaTitle: { marginTop: 10, color: palette.ink, fontSize: 24, lineHeight: 32, fontFamily: typography.medium, letterSpacing: -0.2 },
   inferred: { color: palette.warning, fontSize: 11, lineHeight: 15, fontFamily: typography.medium },

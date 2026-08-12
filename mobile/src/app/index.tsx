@@ -10,8 +10,10 @@ import { palette } from '@/constants/palette';
 import { typography } from '@/constants/typography';
 import { agendaDateParts, agendaTypeLabel, AgendaViewItem, upcomingAgendaItems } from '@/core/agenda';
 import { singaporeDateKey } from '@/core/calendar';
+import { materialsForCourse } from '@/core/library';
 import { AcademicCalendarItem, CourseSession, getNextClass } from '@/core/schedule';
 import { useCalendar } from '@/hooks/use-calendar';
+import { useLibrary } from '@/hooks/use-library';
 import { useNow } from '@/hooks/use-now';
 import { useSchedule } from '@/hooks/use-schedule';
 
@@ -79,6 +81,7 @@ function breakCountdown(item: AcademicCalendarItem, now: Date) {
 export default function HomeScreen() {
   const { schedule, refreshing: scheduleRefreshing, error: scheduleError, refresh: refreshSchedule } = useSchedule();
   const { calendar, source: calendarSource, state: calendarState, activate } = useCalendar();
+  const { library, source: librarySource, refreshing: libraryRefreshing, error: libraryError, refresh: refreshLibrary } = useLibrary();
   const [selection, setSelection] = useState<DetailSelection | null>(null);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const now = useNow();
@@ -98,7 +101,7 @@ export default function HomeScreen() {
   );
   const reducedMotion = useReducedMotion();
   const syncOpacity = useSharedValue(1);
-  const syncing = scheduleRefreshing || calendarState === 'refreshing';
+  const syncing = scheduleRefreshing || calendarState === 'refreshing' || libraryRefreshing;
 
   useEffect(() => {
     cancelAnimation(syncOpacity);
@@ -108,13 +111,13 @@ export default function HomeScreen() {
   }, [reducedMotion, syncOpacity, syncing]);
   const syncDotStyle = useAnimatedStyle(() => ({ opacity: syncOpacity.value }));
 
-  const refreshIssue = scheduleError || calendarState === 'error'
+  const refreshIssue = scheduleError || calendarState === 'error' || libraryError
     ? '失败'
-    : calendarSource === 'cache' ? '离线' : null;
+    : calendarSource === 'cache' || librarySource === 'cache' ? '离线' : null;
   const refreshAll = useCallback(async () => {
     if (syncing) return;
-    await Promise.allSettled([refreshSchedule(), activate()]);
-  }, [activate, refreshSchedule, syncing]);
+    await Promise.allSettled([refreshSchedule(), activate(), refreshLibrary()]);
+  }, [activate, refreshLibrary, refreshSchedule, syncing]);
   const handlePullRefresh = useCallback(async () => {
     if (syncing || pullRefreshing) return;
     setPullRefreshing(true);
@@ -126,8 +129,15 @@ export default function HomeScreen() {
   }, [pullRefreshing, refreshAll, syncing]);
   const selectCourse = useCallback((course: CourseSession) => {
     const brief = schedule.courseBriefs?.find((item) => item.courseCode === course.code) ?? null;
-    setSelection({ kind: 'course', course, brief });
-  }, [schedule.courseBriefs]);
+    const materials = materialsForCourse(library.materials, course.code);
+    setSelection({ kind: 'course', course, brief, materials });
+  }, [library.materials, schedule.courseBriefs]);
+  const resolvedSelection = useMemo<DetailSelection | null>(() => {
+    if (!selection || selection.kind !== 'course') return selection;
+    const course = schedule.courses.find((item) => item.code === selection.course.code) ?? selection.course;
+    const brief = schedule.courseBriefs?.find((item) => item.courseCode === course.code) ?? null;
+    return { kind: 'course', course, brief, materials: materialsForCourse(library.materials, course.code) };
+  }, [library.materials, schedule.courseBriefs, schedule.courses, selection]);
 
   return (
     <LinearGradient colors={['#E7FAFD', '#F7FDFC', '#F8F2E3']} locations={[0, 0.62, 1]} style={styles.background}>
@@ -148,7 +158,7 @@ export default function HomeScreen() {
             <Text style={styles.brand}>知嶼</Text>
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel="刷新课程、测验和校历"
+              accessibilityLabel="刷新课程、测验、校历和资料"
               disabled={syncing}
               hitSlop={8}
               onPress={() => void refreshAll()}
@@ -253,7 +263,7 @@ export default function HomeScreen() {
           </>}
         </ScrollView>
       </SafeAreaView>
-      <DetailSheet selection={selection} visible={Boolean(selection)} onClose={() => setSelection(null)} />
+      <DetailSheet selection={resolvedSelection} visible={Boolean(selection)} onClose={() => setSelection(null)} />
     </LinearGradient>
   );
 }
