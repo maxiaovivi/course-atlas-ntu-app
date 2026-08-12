@@ -32,6 +32,14 @@ export type AcademicCalendarItem = {
   end: string;
 };
 
+export type CourseBrief = {
+  courseCode: string;
+  previousDate: string | null;
+  previous: string[];
+  nextDate: string | null;
+  next: string[];
+};
+
 export type CourseSession = {
   code: string;
   name: string;
@@ -71,6 +79,7 @@ export type SchedulePayload = {
   teachingEnd?: string;
   teachingBreaks?: TeachingBreak[];
   academicCalendar?: AcademicCalendarItem[];
+  courseBriefs?: CourseBrief[];
   courses: CourseSession[];
   exceptions: ScheduleException[];
   agenda?: AgendaItem[];
@@ -85,6 +94,7 @@ export const emptySchedule: SchedulePayload = {
   source: '',
   teachingBreaks: [],
   academicCalendar: [],
+  courseBriefs: [],
   courses: [],
   exceptions: [],
   agenda: [],
@@ -221,6 +231,10 @@ export function isSchedulePayload(value: unknown): value is SchedulePayload {
     && payload.academicCalendar.length <= 64
     && payload.academicCalendar.every((item) => isAcademicCalendarItem(item))
     && new Set(payload.academicCalendar.map((item) => item.id)).size === payload.academicCalendar.length);
+  const courseBriefsValid = payload.courseBriefs === undefined || (Array.isArray(payload.courseBriefs)
+    && payload.courseBriefs.length <= 32
+    && payload.courseBriefs.every((item) => isCourseBrief(item, courseCodes))
+    && new Set(payload.courseBriefs.map((item) => item.courseCode)).size === payload.courseBriefs.length);
   const teachingBoundsValid = (payload.teachingStart === undefined && payload.teachingEnd === undefined)
     || (isAgendaDate(payload.teachingStart) && isAgendaDate(payload.teachingEnd)
       && typeof payload.teachingStart === 'string' && typeof payload.teachingEnd === 'string'
@@ -238,6 +252,7 @@ export function isSchedulePayload(value: unknown): value is SchedulePayload {
     && agendaValid
     && teachingBreaksValid
     && academicCalendarValid
+    && courseBriefsValid
     && teachingBoundsValid;
 }
 
@@ -245,6 +260,7 @@ const AGENDA_TYPES = new Set<AgendaItemType>(['quiz', 'ca', 'deadline', 'academi
 const AGENDA_CERTAINTIES = new Set<AgendaCertainty>(['confirmed', 'inferred', 'pending']);
 const ACADEMIC_CALENDAR_KINDS = new Set<AcademicCalendarKind>(['holiday', 'recess', 'exam', 'vacation']);
 const ACADEMIC_CALENDAR_KEYS = new Set(['id', 'kind', 'title', 'start', 'end']);
+const COURSE_BRIEF_KEYS = new Set(['courseCode', 'previousDate', 'previous', 'nextDate', 'next']);
 const COURSE_CODE_PATTERN = /^[A-Z]{2,4}\d{4}[A-Z]?$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -319,6 +335,33 @@ function isAcademicCalendarItem(value: unknown): value is AcademicCalendarItem {
     && typeof item.start === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(item.start) && isAgendaDate(item.start)
     && typeof item.end === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(item.end) && isAgendaDate(item.end)
     && item.start <= item.end;
+}
+
+function isCourseBrief(value: unknown, courseCodes: Set<string>): value is CourseBrief {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<CourseBrief>;
+  const keys = Object.keys(value);
+  const validDate = (date: unknown): date is string | null => date === null
+    || (typeof date === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(date) && isAgendaDate(date));
+  const validList = (list: unknown): list is string[] => Array.isArray(list)
+    && list.length <= 3
+    && list.every((entry) => typeof entry === 'string'
+      && entry.length > 0 && entry.length <= 120 && entry.trim() === entry
+      && !/[\u0000-\u001f\u007f]/.test(entry))
+    && new Set(list).size === list.length;
+  return keys.length === COURSE_BRIEF_KEYS.size
+    && keys.every((key) => COURSE_BRIEF_KEYS.has(key))
+    && typeof item.courseCode === 'string' && courseCodes.has(item.courseCode)
+    && validDate(item.previousDate)
+    && validList(item.previous)
+    && validDate(item.nextDate)
+    && validList(item.next)
+    && (item.previous.length > 0 || item.next.length > 0)
+    && ((item.previous.length === 0 && item.previousDate === null)
+      || (item.previous.length > 0 && item.previousDate !== null))
+    && ((item.next.length === 0 && item.nextDate === null)
+      || (item.next.length > 0 && item.nextDate !== null))
+    && (item.previousDate === null || item.nextDate === null || item.previousDate < item.nextDate);
 }
 
 export function isAgendaItem(value: unknown): value is AgendaItem {

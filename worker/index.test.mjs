@@ -29,6 +29,7 @@ test("an empty schedule bucket is initialized from fictional repository data", a
   assert.equal(schedule.exceptions.length, 1);
   assert.equal(schedule.agenda.length, 3);
   assert.equal(schedule.academicCalendar.length, 4);
+  assert.equal(schedule.courseBriefs.length, 2);
   assert.notEqual(schedule.updatedAt, source.updatedAt);
   assert.ok(bucket.objects.has("app/schedule-v1.json"));
 });
@@ -48,6 +49,7 @@ test("schedule is updated in storage and then served publicly", async () => {
   assert.equal(result.exceptions, 1);
   assert.equal(result.agenda, 3);
   assert.equal(result.academicCalendar, 4);
+  assert.equal(result.courseBriefs, 2);
 
   const response = await worker.fetch(new Request("https://example.test/api/schedule"), env);
   assert.equal(response.status, 200);
@@ -57,6 +59,7 @@ test("schedule is updated in storage and then served publicly", async () => {
   assert.equal(schedule.exceptions[0].replacesDate, "2030-08-18");
   assert.equal(schedule.agenda[0].title, "Fictional Quiz 1");
   assert.equal(schedule.academicCalendar[0].kind, "recess");
+  assert.deepEqual(schedule.courseBriefs[0].next, ["Read fictional chapter 2", "Bring the fictional lab notes"]);
   assert.notEqual(schedule.updatedAt, "2030-08-01T00:00:00+08:00");
 });
 
@@ -157,6 +160,72 @@ test("academic-calendar data remains optional for older schedule payloads", asyn
   });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).academicCalendar, undefined);
+});
+
+test("course-brief data is strict while remaining optional for older payloads", async () => {
+  const legacySchedule = structuredClone(DEFAULT_SCHEDULE);
+  delete legacySchedule.courseBriefs;
+  const legacyResponse = await worker.fetch(new Request("https://example.test/api/schedule"), {
+    COURSE_ATLAS_DATA_JSON: JSON.stringify(legacySchedule),
+  });
+  assert.equal(legacyResponse.status, 200);
+  assert.equal((await legacyResponse.json()).courseBriefs, undefined);
+
+  const invalidSchedules = [];
+
+  const unknownCourse = structuredClone(DEFAULT_SCHEDULE);
+  unknownCourse.courseBriefs[0].courseCode = "EX9999";
+  invalidSchedules.push(unknownCourse);
+
+  const duplicateCourse = structuredClone(DEFAULT_SCHEDULE);
+  duplicateCourse.courseBriefs[1].courseCode = duplicateCourse.courseBriefs[0].courseCode;
+  invalidSchedules.push(duplicateCourse);
+
+  const tooManyItems = structuredClone(DEFAULT_SCHEDULE);
+  tooManyItems.courseBriefs[0].next = ["One", "Two", "Three", "Four"];
+  invalidSchedules.push(tooManyItems);
+
+  const unknownField = structuredClone(DEFAULT_SCHEDULE);
+  unknownField.courseBriefs[0].detail = "Unexpected field";
+  invalidSchedules.push(unknownField);
+
+  const emptyBrief = structuredClone(DEFAULT_SCHEDULE);
+  emptyBrief.courseBriefs[0].previous = [];
+  emptyBrief.courseBriefs[0].previousDate = null;
+  emptyBrief.courseBriefs[0].next = [];
+  emptyBrief.courseBriefs[0].nextDate = null;
+  invalidSchedules.push(emptyBrief);
+
+  const duplicateItem = structuredClone(DEFAULT_SCHEDULE);
+  duplicateItem.courseBriefs[0].next = ["Same fictional task", "Same fictional task"];
+  invalidSchedules.push(duplicateItem);
+
+  const paddedItem = structuredClone(DEFAULT_SCHEDULE);
+  paddedItem.courseBriefs[0].next = [" Fictional task with padding"];
+  invalidSchedules.push(paddedItem);
+
+  const multilineItem = structuredClone(DEFAULT_SCHEDULE);
+  multilineItem.courseBriefs[0].next = ["Fictional task\nwith hidden layout"];
+  invalidSchedules.push(multilineItem);
+
+  const missingDate = structuredClone(DEFAULT_SCHEDULE);
+  missingDate.courseBriefs[0].nextDate = null;
+  invalidSchedules.push(missingDate);
+
+  const invalidDate = structuredClone(DEFAULT_SCHEDULE);
+  invalidDate.courseBriefs[0].previousDate = "2030-02-31";
+  invalidSchedules.push(invalidDate);
+
+  const invertedDates = structuredClone(DEFAULT_SCHEDULE);
+  invertedDates.courseBriefs[0].previousDate = "2030-08-26";
+  invalidSchedules.push(invertedDates);
+
+  for (const schedule of invalidSchedules) {
+    const response = await worker.fetch(new Request("https://example.test/api/schedule"), {
+      COURSE_ATLAS_DATA_JSON: JSON.stringify(schedule),
+    });
+    assert.equal(response.status, 503);
+  }
 });
 
 test("schedule update rejects missing credentials and invalid data", async () => {

@@ -22,6 +22,9 @@ Pull-to-refresh and the top-right status control share the same refresh action a
 
 The backend timetable, academic calendar, and agenda can be changed independently through the
 validated, UTF-8 chunked `COURSE_ATLAS_DATA_JSON_1`, `_2`, … Sites secrets.
+The same payload may include optional dated `courseBriefs`. They are stored in
+the schedule cache and appear only after a course is opened, so weekly homework
+or preparation changes are backend-only updates and remain available offline.
 `data/schedule.json` is an
 ignored local staging file; Git contains only `data/schedule.example.json`.
 The protected `/api/admin/schedule` endpoint remains available for the R2

@@ -125,8 +125,9 @@ export default function HomeScreen() {
     }
   }, [pullRefreshing, refreshAll, syncing]);
   const selectCourse = useCallback((course: CourseSession) => {
-    setSelection({ kind: 'course', course });
-  }, []);
+    const brief = schedule.courseBriefs?.find((item) => item.courseCode === course.code) ?? null;
+    setSelection({ kind: 'course', course, brief });
+  }, [schedule.courseBriefs]);
 
   return (
     <LinearGradient colors={['#E7FAFD', '#F7FDFC', '#F8F2E3']} locations={[0, 0.62, 1]} style={styles.background}>

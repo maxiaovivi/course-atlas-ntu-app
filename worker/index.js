@@ -65,6 +65,22 @@ export const DEFAULT_SCHEDULE = {
       end: "2031-01-05",
     },
   ],
+  courseBriefs: [
+    {
+      courseCode: "EX1001",
+      previousDate: "2030-08-12",
+      previous: ["Fictional worksheet A"],
+      nextDate: "2030-08-19",
+      next: ["Read fictional chapter 2", "Bring the fictional lab notes"],
+    },
+    {
+      courseCode: "EX2002",
+      previousDate: null,
+      previous: [],
+      nextDate: "2030-08-21",
+      next: ["Review the fictional data example"],
+    },
+  ],
   courses: [
     {
       code: "EX1001",
@@ -221,6 +237,27 @@ function isSchedule(value) {
     && text(course, "location") && ["confirmed", "pending"].includes(course.locationStatus)
     && text(course, "locationSource") && nullableText(course, "note"))) return false;
   const courseCodes = new Set(value.courses.map((course) => course.code));
+  if (value.courseBriefs !== undefined) {
+    const validBriefList = (items) => Array.isArray(items) && items.length <= 3
+      && items.every((item) => typeof item === "string" && item.length > 0 && item.length <= 120
+        && item.trim() === item && !/[\u0000-\u001f\u007f]/.test(item))
+      && new Set(items).size === items.length;
+    const validBriefDate = (date) => date === null || isCalendarDate(date);
+    if (!Array.isArray(value.courseBriefs) || value.courseBriefs.length > 32
+      || !value.courseBriefs.every((item) => item && typeof item === "object"
+        && Object.keys(item).length === 5
+        && Object.keys(item).every((key) => ["courseCode", "previousDate", "previous", "nextDate", "next"].includes(key))
+        && courseCodes.has(item.courseCode)
+        && validBriefDate(item.previousDate) && validBriefList(item.previous)
+        && validBriefDate(item.nextDate) && validBriefList(item.next)
+        && (item.previous.length > 0 || item.next.length > 0)
+        && ((item.previous.length === 0 && item.previousDate === null)
+          || (item.previous.length > 0 && item.previousDate !== null))
+        && ((item.next.length === 0 && item.nextDate === null)
+          || (item.next.length > 0 && item.nextDate !== null))
+        && (item.previousDate === null || item.nextDate === null || item.previousDate < item.nextDate))
+      || new Set(value.courseBriefs.map((item) => item.courseCode)).size !== value.courseBriefs.length) return false;
+  }
   const validExceptions = value.exceptions.every((exception) => exception && typeof exception === "object"
     && /^[a-z0-9-]{8,120}$/.test(exception.id)
     && courseCodes.has(exception.courseCode) && isCalendarDate(exception.date)
@@ -325,6 +362,7 @@ async function updateSchedule(request, env) {
     exceptions: schedule.exceptions.length,
     agenda: schedule.agenda.length,
     academicCalendar: schedule.academicCalendar?.length ?? 0,
+    courseBriefs: schedule.courseBriefs?.length ?? 0,
   });
 }
 

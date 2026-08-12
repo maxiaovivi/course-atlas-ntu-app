@@ -45,6 +45,29 @@
       "end": "2031-01-05"
     }
   ],
+  "courseBriefs": [
+    {
+      "courseCode": "EX1001",
+      "previousDate": "2030-08-12",
+      "previous": [
+        "Fictional worksheet A"
+      ],
+      "nextDate": "2030-08-19",
+      "next": [
+        "Read fictional chapter 2",
+        "Bring the fictional lab notes"
+      ]
+    },
+    {
+      "courseCode": "EX2002",
+      "previousDate": null,
+      "previous": [],
+      "nextDate": "2030-08-21",
+      "next": [
+        "Review the fictional data example"
+      ]
+    }
+  ],
   "courses": [
     {
       "code": "EX1001",

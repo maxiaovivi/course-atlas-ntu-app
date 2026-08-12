@@ -8,12 +8,13 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { interpolate, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 
 import { agendaDateParts, agendaTypeLabel, AgendaViewItem } from '@/core/agenda';
-import { AcademicCalendarItem, CourseSession } from '@/core/schedule';
+import { singaporeDateKey } from '@/core/calendar';
+import { AcademicCalendarItem, CourseBrief, CourseSession } from '@/core/schedule';
 import { palette } from '@/constants/palette';
 import { typography } from '@/constants/typography';
 
 export type DetailSelection =
-  | { kind: 'course'; course: CourseSession }
+  | { kind: 'course'; course: CourseSession; brief: CourseBrief | null }
   | { kind: 'agenda'; item: AgendaViewItem }
   | { kind: 'calendar'; items: AcademicCalendarItem[] };
 
@@ -37,15 +38,67 @@ function compactDateRange(item: AcademicCalendarItem) {
   return item.start === item.end ? compactDate(item.start) : `${compactDate(item.start)}—${compactDate(item.end)}`;
 }
 
-function CourseDetails({ course }: { course: CourseSession }) {
-  const location = course.locationStatus === 'pending' && !course.location.includes('待')
-    ? `${course.location} · 待确认`
-    : course.location;
+function CourseBriefBlock({
+  label,
+  date,
+  items,
+  accent = false,
+  stale = false,
+}: {
+  label: string;
+  date: string | null;
+  items: string[];
+  accent?: boolean;
+  stale?: boolean;
+}) {
+  const visibleItems = stale ? [] : items;
+  return (
+    <View
+      accessible
+      accessibilityLabel={`${label}${date ? `，${date}` : ''}，${stale ? '待更新' : visibleItems.length > 0 ? visibleItems.join('，') : '暂无'}`}
+      style={[styles.briefBlock, accent && styles.briefBlockAccent]}>
+      <View style={styles.briefHeader}>
+        <Text style={[styles.briefLabel, accent && styles.briefLabelAccent]}>{label}</Text>
+        {date && !stale && <Text style={styles.briefDate}>{compactDate(date)}</Text>}
+      </View>
+      {visibleItems.length > 0
+        ? <View style={styles.briefItems}>{visibleItems.map((item) => <View key={item} style={styles.briefItem}>
+          <View style={[styles.briefDot, accent && styles.briefDotAccent]} />
+          <Text style={styles.briefText}>{item}</Text>
+        </View>)}</View>
+        : <Text style={styles.briefEmpty}>{stale ? '待更新' : '暂无'}</Text>}
+    </View>
+  );
+}
+
+function CourseDetails({ course, brief }: { course: CourseSession; brief: CourseBrief | null }) {
+  const now = new Date();
+  const stale = Boolean(brief?.nextDate && (
+    brief.nextDate < singaporeDateKey(now)
+    || (brief.nextDate === singaporeDateKey(now)
+      && Date.parse(`${brief.nextDate}T${course.end}:00+08:00`) < now.getTime())
+  ));
   return (
     <>
       <Text style={styles.code}>{course.code}</Text>
-      <Text style={styles.title}>{course.name}</Text>
-      <Text numberOfLines={1} style={styles.detailLine}>{course.dayLabel} · {course.start}—{course.end} · {location}</Text>
+      <Text numberOfLines={2} style={styles.title}>{course.name}</Text>
+      {brief ? <View style={styles.briefStack}>
+        <CourseBriefBlock
+          label="上节课后"
+          date={brief?.previousDate ?? null}
+          items={brief?.previous ?? []}
+          stale={stale}
+        />
+        <CourseBriefBlock
+          label="下节课前"
+          date={brief?.nextDate ?? null}
+          items={brief?.next ?? []}
+          accent
+          stale={stale}
+        />
+      </View> : <View accessible accessibilityLabel="课程内容未更新" style={styles.briefMissing}>
+        <Text style={styles.briefMissingText}>未更新</Text>
+      </View>}
       {(course.note || course.locationSource) && <Disclosure>
         {course.note && <Text style={styles.explanation}>{course.note}</Text>}
         {course.locationSource && <Text style={styles.sourceText}>{course.locationSource}</Text>}
@@ -182,7 +235,7 @@ export function DetailSheet({ selection, visible, onClose }: Props) {
           </View>
           <ScrollView showsVerticalScrollIndicator={false} bounces={false} contentContainerStyle={styles.content}>
             {shownSelection.kind === 'course'
-              ? <CourseDetails key={shownSelection.course.code} course={shownSelection.course} />
+              ? <CourseDetails key={shownSelection.course.code} course={shownSelection.course} brief={shownSelection.brief} />
               : shownSelection.kind === 'agenda'
                 ? <AgendaDetails key={shownSelection.item.id} item={shownSelection.item} />
                 : <CalendarDetails items={shownSelection.items} />}
@@ -205,6 +258,21 @@ const styles = StyleSheet.create({
   overline: { color: palette.cyanDeep, fontSize: 12, lineHeight: 17, fontFamily: typography.medium, letterSpacing: 0.7 },
   code: { color: palette.cyanDeep, fontSize: 17, lineHeight: 23, fontFamily: typography.medium, letterSpacing: 0.6 },
   title: { marginTop: 8, color: palette.ink, fontSize: 25, lineHeight: 33, fontFamily: typography.medium, letterSpacing: -0.35 },
+  briefStack: { marginTop: 25, gap: 11 },
+  briefBlock: { minHeight: 104, paddingHorizontal: 16, paddingVertical: 15, borderWidth: 1, borderColor: palette.line, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.72)' },
+  briefBlockAccent: { borderColor: 'rgba(34,181,210,0.22)', backgroundColor: 'rgba(224,249,251,0.76)' },
+  briefHeader: { minHeight: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  briefLabel: { color: palette.inkSoft, fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
+  briefLabelAccent: { color: palette.cyanDeep },
+  briefDate: { color: palette.muted, fontSize: 11, lineHeight: 16, fontFamily: typography.regular, fontVariant: ['tabular-nums'] },
+  briefItems: { marginTop: 11, gap: 8 },
+  briefItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
+  briefDot: { width: 4, height: 4, marginTop: 8, borderRadius: 2, backgroundColor: palette.muted },
+  briefDotAccent: { backgroundColor: palette.cyan },
+  briefText: { flex: 1, color: palette.ink, fontSize: 15, lineHeight: 22, fontFamily: typography.regular },
+  briefEmpty: { marginTop: 12, color: palette.muted, fontSize: 14, lineHeight: 20, fontFamily: typography.regular },
+  briefMissing: { minHeight: 92, marginTop: 25, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.line, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.62)' },
+  briefMissingText: { color: palette.muted, fontSize: 14, lineHeight: 20, fontFamily: typography.regular },
   agendaHeaderRow: { minHeight: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   agendaTitle: { marginTop: 10, color: palette.ink, fontSize: 24, lineHeight: 32, fontFamily: typography.medium, letterSpacing: -0.2 },
   inferred: { color: palette.warning, fontSize: 11, lineHeight: 15, fontFamily: typography.medium },

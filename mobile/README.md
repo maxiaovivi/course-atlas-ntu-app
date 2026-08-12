@@ -13,7 +13,9 @@ timetable and calendar.
 The home screen is intentionally glanceable: next class, the next no-class
 period, at most three near-term items, and the fixed timetable. The
 calligraphic face is limited to short display labels; all dates, times, rooms,
-and course data use the system sans-serif face.
+and course data use the system sans-serif face. Tapping any course opens its
+cached, dated “上节课后 / 下节课前” brief; no brief text is duplicated on the
+home screen and no second request is needed.
 
 ```bash
 npm run typecheck
