@@ -59,9 +59,11 @@ export default function MathFormula({
       const formula = formulaRef.current;
       const content = contentRef.current;
       if (!formula || !content) return;
-      const available = Math.max(1, formula.clientWidth - 12);
-      const required = Math.max(1, content.scrollWidth);
-      setScale(Math.min(1, available / required));
+      const availableWidth = Math.max(1, formula.clientWidth - 12);
+      const availableHeight = Math.max(1, formula.clientHeight - 8);
+      const requiredWidth = Math.max(1, content.scrollWidth);
+      const requiredHeight = Math.max(1, content.scrollHeight);
+      setScale(Math.min(1, availableWidth / requiredWidth, availableHeight / requiredHeight));
     };
     const scheduleMeasure = () => {
       cancelAnimationFrame(frame);
@@ -103,7 +105,7 @@ export default function MathFormula({
         :root { color-scheme: light; }
         html, body { margin: 0; min-height: 100%; background: transparent; overflow: hidden; }
         body { display: flex; align-items: center; justify-content: center; }
-        .formula { width: 100%; height: 100%; padding: 0 6px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: hidden; color: ${color}; font-size: ${fontSize}px; text-align: center; }
+        .formula { width: 100%; height: 100%; padding: 4px 6px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: hidden; color: ${color}; font-size: ${fontSize}px; text-align: center; }
         .fit { display: inline-block; width: max-content; max-width: none; transform: scale(${scale}); transform-origin: center center; }
         .katex-display { margin: 0; overflow: visible; }
       `}</style>
