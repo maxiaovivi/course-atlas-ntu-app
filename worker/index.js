@@ -35,6 +35,36 @@ export const DEFAULT_SCHEDULE = {
       label: "Fictional midterm break",
     },
   ],
+  academicCalendar: [
+    {
+      id: "fictional-recess-period",
+      kind: "recess",
+      title: "Fictional recess period",
+      start: "2030-09-29",
+      end: "2030-10-05",
+    },
+    {
+      id: "fictional-public-holiday",
+      kind: "holiday",
+      title: "Fictional public holiday",
+      start: "2030-10-21",
+      end: "2030-10-21",
+    },
+    {
+      id: "fictional-examination-period",
+      kind: "exam",
+      title: "Fictional examination period",
+      start: "2030-11-18",
+      end: "2030-12-02",
+    },
+    {
+      id: "fictional-semester-vacation",
+      kind: "vacation",
+      title: "Fictional semester vacation",
+      start: "2030-12-09",
+      end: "2031-01-05",
+    },
+  ],
   courses: [
     {
       code: "EX1001",
@@ -171,6 +201,17 @@ function isSchedule(value) {
       && /^[a-z0-9-]{8,120}$/.test(item.id)
       && isCalendarDate(item.start) && isCalendarDate(item.end) && item.start <= item.end
       && text(item, "label", 120)))) return false;
+  if (value.academicCalendar !== undefined) {
+    if (!Array.isArray(value.academicCalendar) || value.academicCalendar.length > 64
+      || !value.academicCalendar.every((item) => item && typeof item === "object"
+        && Object.keys(item).length === 5
+        && Object.keys(item).every((key) => ["id", "kind", "title", "start", "end"].includes(key))
+        && /^[a-z0-9-]{8,120}$/.test(item.id)
+        && ["holiday", "recess", "exam", "vacation"].includes(item.kind)
+        && text(item, "title", 120)
+        && isCalendarDate(item.start) && isCalendarDate(item.end) && item.start <= item.end)
+      || new Set(value.academicCalendar.map((item) => item.id)).size !== value.academicCalendar.length) return false;
+  }
   if (!value.courses.every((course) => course && typeof course === "object"
     && /^[A-Z]{2,4}\d{4}[A-Z]?$/.test(course.code)
     && text(course, "name") && text(course, "zh")
@@ -277,7 +318,14 @@ async function updateSchedule(request, env) {
     httpMetadata: { contentType: "application/json", cacheControl: "public, max-age=60" },
     customMetadata: { purpose: "course-atlas-schedule", version: String(schedule.version) },
   });
-  return json({ ok: true, updatedAt: schedule.updatedAt, courses: schedule.courses.length, exceptions: schedule.exceptions.length, agenda: schedule.agenda.length });
+  return json({
+    ok: true,
+    updatedAt: schedule.updatedAt,
+    courses: schedule.courses.length,
+    exceptions: schedule.exceptions.length,
+    agenda: schedule.agenda.length,
+    academicCalendar: schedule.academicCalendar?.length ?? 0,
+  });
 }
 
 function emptyCalendar() {

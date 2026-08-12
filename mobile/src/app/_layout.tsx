@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ZhiMangXing_400Regular, useFonts } from '@expo-google-fonts/zhi-mang-xing';
+import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -10,7 +10,9 @@ import { useAppUpdate } from '@/hooks/use-app-update';
 void SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts({ ZhiMangXing_400Regular });
+  const [fontsLoaded, fontError] = useFonts({
+    JasonHandwriting5: require('../../assets/fonts/JasonHandwriting5.ttf'),
+  });
   useAppUpdate();
 
   useEffect(() => {

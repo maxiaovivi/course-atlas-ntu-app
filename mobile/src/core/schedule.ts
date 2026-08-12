@@ -22,6 +22,16 @@ export type TeachingBreak = {
   label: string;
 };
 
+export type AcademicCalendarKind = 'holiday' | 'recess' | 'exam' | 'vacation';
+
+export type AcademicCalendarItem = {
+  id: string;
+  kind: AcademicCalendarKind;
+  title: string;
+  start: string;
+  end: string;
+};
+
 export type CourseSession = {
   code: string;
   name: string;
@@ -60,6 +70,7 @@ export type SchedulePayload = {
   teachingStart?: string;
   teachingEnd?: string;
   teachingBreaks?: TeachingBreak[];
+  academicCalendar?: AcademicCalendarItem[];
   courses: CourseSession[];
   exceptions: ScheduleException[];
   agenda?: AgendaItem[];
@@ -73,6 +84,7 @@ export const emptySchedule: SchedulePayload = {
   updatedAt: '',
   source: '',
   teachingBreaks: [],
+  academicCalendar: [],
   courses: [],
   exceptions: [],
   agenda: [],
@@ -205,6 +217,10 @@ export function isSchedulePayload(value: unknown): value is SchedulePayload {
   const teachingBreaksValid = payload.teachingBreaks === undefined || (Array.isArray(payload.teachingBreaks)
     && payload.teachingBreaks.length <= 32
     && payload.teachingBreaks.every((item) => isTeachingBreak(item)));
+  const academicCalendarValid = payload.academicCalendar === undefined || (Array.isArray(payload.academicCalendar)
+    && payload.academicCalendar.length <= 64
+    && payload.academicCalendar.every((item) => isAcademicCalendarItem(item))
+    && new Set(payload.academicCalendar.map((item) => item.id)).size === payload.academicCalendar.length);
   const teachingBoundsValid = (payload.teachingStart === undefined && payload.teachingEnd === undefined)
     || (isAgendaDate(payload.teachingStart) && isAgendaDate(payload.teachingEnd)
       && typeof payload.teachingStart === 'string' && typeof payload.teachingEnd === 'string'
@@ -221,11 +237,14 @@ export function isSchedulePayload(value: unknown): value is SchedulePayload {
     && exceptionsValid
     && agendaValid
     && teachingBreaksValid
+    && academicCalendarValid
     && teachingBoundsValid;
 }
 
 const AGENDA_TYPES = new Set<AgendaItemType>(['quiz', 'ca', 'deadline', 'academic', 'notice']);
 const AGENDA_CERTAINTIES = new Set<AgendaCertainty>(['confirmed', 'inferred', 'pending']);
+const ACADEMIC_CALENDAR_KINDS = new Set<AcademicCalendarKind>(['holiday', 'recess', 'exam', 'vacation']);
+const ACADEMIC_CALENDAR_KEYS = new Set(['id', 'kind', 'title', 'start', 'end']);
 const COURSE_CODE_PATTERN = /^[A-Z]{2,4}\d{4}[A-Z]?$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -286,6 +305,20 @@ function isTeachingBreak(value: unknown): value is TeachingBreak {
     && typeof item.end === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(item.end) && isAgendaDate(item.end)
     && item.start <= item.end
     && typeof item.label === 'string' && item.label.length > 0 && item.label.length <= 120;
+}
+
+function isAcademicCalendarItem(value: unknown): value is AcademicCalendarItem {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<AcademicCalendarItem>;
+  const keys = Object.keys(value);
+  return keys.length === ACADEMIC_CALENDAR_KEYS.size
+    && keys.every((key) => ACADEMIC_CALENDAR_KEYS.has(key))
+    && typeof item.id === 'string' && /^[a-z0-9-]{8,120}$/.test(item.id)
+    && ACADEMIC_CALENDAR_KINDS.has(item.kind as AcademicCalendarKind)
+    && typeof item.title === 'string' && item.title.length > 0 && item.title.length <= 120
+    && typeof item.start === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(item.start) && isAgendaDate(item.start)
+    && typeof item.end === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(item.end) && isAgendaDate(item.end)
+    && item.start <= item.end;
 }
 
 export function isAgendaItem(value: unknown): value is AgendaItem {

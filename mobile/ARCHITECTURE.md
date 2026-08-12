@@ -18,9 +18,9 @@ credential. After the first successful request, the app renders its
 AsyncStorage caches immediately; a failed request does not remove the last
 verified data.
 
-Pull-to-refresh and the top-right status control share the same refresh action and update both the timetable snapshot and the NTULearn calendar. `POST /api/calendar/refresh` performs exactly one upstream calendar fetch inside Sites; ordinary app startup only reads the cached Site snapshot. The app shows at most six upcoming events on the home screen.
+Pull-to-refresh and the top-right status control share the same refresh action and update both the timetable snapshot and the NTULearn calendar. `POST /api/calendar/refresh` performs exactly one upstream calendar fetch inside Sites; ordinary app startup only reads the cached Site snapshot. The home screen shows at most three upcoming items and one concise next-break row; the full official semester periods stay in the existing detail sheet.
 
-The backend timetable and agenda can be changed independently through the
+The backend timetable, academic calendar, and agenda can be changed independently through the
 validated, UTF-8 chunked `COURSE_ATLAS_DATA_JSON_1`, `_2`, … Sites secrets.
 `data/schedule.json` is an
 ignored local staging file; Git contains only `data/schedule.example.json`.

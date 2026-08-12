@@ -15,6 +15,36 @@
       "label": "Fictional midterm break"
     }
   ],
+  "academicCalendar": [
+    {
+      "id": "fictional-recess-period",
+      "kind": "recess",
+      "title": "Fictional recess period",
+      "start": "2030-09-29",
+      "end": "2030-10-05"
+    },
+    {
+      "id": "fictional-public-holiday",
+      "kind": "holiday",
+      "title": "Fictional public holiday",
+      "start": "2030-10-21",
+      "end": "2030-10-21"
+    },
+    {
+      "id": "fictional-examination-period",
+      "kind": "exam",
+      "title": "Fictional examination period",
+      "start": "2030-11-18",
+      "end": "2030-12-02"
+    },
+    {
+      "id": "fictional-semester-vacation",
+      "kind": "vacation",
+      "title": "Fictional semester vacation",
+      "start": "2030-12-09",
+      "end": "2031-01-05"
+    }
+  ],
   "courses": [
     {
       "code": "EX1001",
