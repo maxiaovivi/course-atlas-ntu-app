@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { ZhiMangXing_400Regular } from '@expo-google-fonts/zhi-mang-xing';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -11,7 +12,7 @@ void SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    JasonHandwriting5: require('../../assets/fonts/JasonHandwriting5.ttf'),
+    ZhiMangXing_400Regular,
   });
   useAppUpdate();
 
@@ -24,7 +25,12 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <StatusBar style="dark" />
-      <Stack screenOptions={{ headerShown: false, animation: 'none' }} />
+      <Stack screenOptions={{ headerShown: false, animation: 'none' }}>
+        <Stack.Screen
+          name="memory"
+          options={{ animation: 'slide_from_right', gestureEnabled: true }}
+        />
+      </Stack>
     </GestureHandlerRootView>
   );
 }

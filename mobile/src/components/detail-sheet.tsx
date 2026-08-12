@@ -174,7 +174,7 @@ function AgendaDetails({ item }: { item: AgendaViewItem }) {
 function CalendarDetails({ items }: { items: AcademicCalendarItem[] }) {
   return (
     <>
-      <Text style={styles.calendarTitle}>校曆</Text>
+      <Text style={styles.calendarTitle}>校历</Text>
       <View style={styles.calendarList}>
         {items.map((item, index) => <View
           key={item.id}

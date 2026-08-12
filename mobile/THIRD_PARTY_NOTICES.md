@@ -1,13 +1,18 @@
 # Third-party notices
 
-## JasonHandwriting5 / 清松手寫體 5
+## Zhi Mang Xing / 钟齐志莽行书
 
-The short calligraphic display accents use **JasonHandwriting5 / 清松手寫體 5**,
-created by Jason (Yu Ching Sung). The author identifies style 5 as 行楷. It is
-distributed under the SIL Open Font License 1.1.
+The short calligraphic display accents use **Zhi Mang Xing / 钟齐志莽行书**,
+published through Google Fonts. Copyright 2018 The Zhi Mang Xing Project
+Authors. It is distributed under the SIL Open Font License 1.1.
 
-- Font source: <https://github.com/jasonhandwriting/JasonHandwriting>
+- Font source: <https://fonts.google.com/specimen/Zhi+Mang+Xing>
+- Expo package: <https://www.npmjs.com/package/@expo-google-fonts/zhi-mang-xing>
 - Bundled license: [`licenses/OFL-1.1.txt`](licenses/OFL-1.1.txt)
+
+The Expo font package wrapper is copyright 2020 Expo and distributed under
+the MIT License; a copy is included at
+[`licenses/EXPO-GOOGLE-FONTS-MIT.txt`](licenses/EXPO-GOOGLE-FONTS-MIT.txt).
 
 The font is used only for short display titles. Course names, times,
 locations, assessments, and notices use the device system sans-serif font.

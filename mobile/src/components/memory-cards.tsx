@@ -1,11 +1,10 @@
-/* eslint-disable react-hooks/immutability -- Reanimated shared values are intentionally mutable UI-thread refs. */
-/* eslint-disable react-hooks/set-state-in-effect -- Modal state resets to the card opened from the carousel. */
+/* eslint-disable react-hooks/set-state-in-effect -- The selected card follows asynchronously loaded backend data. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { BlurView } from 'expo-blur';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { interpolate, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import MathFormula from '@/components/math-formula.dom';
@@ -20,6 +19,15 @@ function formulaHeight(latex: string, detail = false) {
   if (/\\begin\{(?:bmatrix|matrix|aligned|cases)\}/.test(latex)) return detail ? 132 : 86;
   if (latex.length > 150) return detail ? 106 : 74;
   return detail ? 78 : 58;
+}
+
+function continuousFormula(latex: string[]) {
+  if (latex.length < 2) return latex[0] ?? null;
+  return `\\begin{gathered}${latex.map((item) => `{${item}}`).join('\\\\[0.9em]')}\\end{gathered}`;
+}
+
+function continuousFormulaHeight(latex: string[]) {
+  return latex.reduce((height, item) => height + formulaHeight(item, true), 0) + Math.max(0, latex.length - 1) * 10;
 }
 
 export function MemoryCardCarousel({ cards, onOpen }: { cards: StudyCard[]; onOpen: (card: StudyCard) => void }) {
@@ -66,7 +74,7 @@ export function MemoryCardCarousel({ cards, onOpen }: { cards: StudyCard[]; onOp
           onPress={() => onOpen(card)}
           style={styles.preview}>
           <View style={styles.previewTop}>
-            <Text style={styles.previewTitle}>記憶</Text>
+            <Text style={styles.previewTitle}>记忆</Text>
             <Text numberOfLines={1} style={styles.previewMeta}>{card.courseCode} · {card.signal}</Text>
           </View>
           <Text numberOfLines={2} style={styles.previewPrompt}>{card.prompt}</Text>
@@ -90,60 +98,45 @@ export function MemoryCardCarousel({ cards, onOpen }: { cards: StudyCard[]; onOp
   );
 }
 
-type SheetProps = {
+type ReaderProps = {
   cards: StudyCard[];
-  initialCard: StudyCard | null;
-  visible: boolean;
+  initialCardId?: string;
   onClose: () => void;
 };
 
-export function MemorySheet({ cards, initialCard, visible, onClose }: SheetProps) {
-  const { height, width } = useWindowDimensions();
+export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
   const reducedMotion = useReducedMotion();
-  const [mounted, setMounted] = useState(visible);
+  const initialCard = useMemo(
+    () => cards.find((card) => card.id === initialCardId) ?? null,
+    [cards, initialCardId],
+  );
   const [course, setCourse] = useState<string>(initialCard?.courseCode ?? COURSES[0]);
   const [selectedId, setSelectedId] = useState(initialCard?.id ?? '');
-  const deckScrollRef = useRef<ScrollView>(null);
+  const appliedInitialId = useRef<string | null>(null);
+  const contentScrollRef = useRef<ScrollView>(null);
   const dragX = useSharedValue(0);
-  const dragY = useSharedValue(0);
-  const sheetProgress = useSharedValue(0);
-  const sheetHeight = height * 0.94;
 
   useEffect(() => {
-    if (visible) {
-      if (initialCard) {
-        setCourse(initialCard.courseCode);
-        setSelectedId(initialCard.id);
-      }
-      setMounted(true);
-      dragY.value = 0;
-      sheetProgress.value = reducedMotion ? 1 : withTiming(1, { duration: 220 });
-      void Haptics.selectionAsync();
-      return;
-    }
-    if (reducedMotion) {
-      sheetProgress.value = 0;
-      setMounted(false);
-      return;
-    }
-    sheetProgress.value = withTiming(0, { duration: 220 }, (finished) => {
-      if (finished) runOnJS(setMounted)(false);
-    });
-  }, [dragY, initialCard, reducedMotion, sheetProgress, visible]);
+    if (!initialCard || appliedInitialId.current === initialCard.id) return;
+    appliedInitialId.current = initialCard.id;
+    setCourse(initialCard.courseCode);
+    setSelectedId(initialCard.id);
+  }, [initialCard]);
 
   const deck = useMemo(() => studyCardsForCourse(cards, course), [cards, course]);
   const currentIndex = Math.max(0, deck.findIndex((card) => card.id === selectedId));
   const current = deck[currentIndex] ?? deck[0] ?? null;
   const currentId = current?.id ?? null;
+  const formula = current ? continuousFormula(current.latex) : null;
 
   useEffect(() => {
     if (current && current.id !== selectedId) setSelectedId(current.id);
   }, [current, selectedId]);
 
   useEffect(() => {
-    if (!visible || !currentId) return;
-    deckScrollRef.current?.scrollTo({ y: 0, animated: false });
-  }, [course, currentId, visible]);
+    if (!currentId) return;
+    contentScrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [course, currentId]);
 
   const move = useCallback((direction: -1 | 1) => {
     if (deck.length < 2) return;
@@ -155,143 +148,126 @@ export function MemorySheet({ cards, initialCard, visible, onClose }: SheetProps
   const pan = Gesture.Pan()
     .activeOffsetX([-18, 18])
     .failOffsetY([-14, 14])
-    .onUpdate((event) => { dragX.value = Math.max(-72, Math.min(72, event.translationX)); })
+    .onUpdate((event) => { dragX.value = Math.max(-78, Math.min(78, event.translationX)); })
     .onEnd((event) => {
-      if (event.translationX < -55 || event.velocityX < -650) runOnJS(move)(1);
-      else if (event.translationX > 55 || event.velocityX > 650) runOnJS(move)(-1);
+      if (event.translationX < -52 || event.velocityX < -620) runOnJS(move)(1);
+      else if (event.translationX > 52 || event.velocityX > 620) runOnJS(move)(-1);
       dragX.value = reducedMotion ? 0 : withSpring(0, { damping: 20, stiffness: 250, mass: 0.58 });
     });
   const cardGesture = Gesture.Simultaneous(pan, Gesture.Native());
-  const sheetPan = Gesture.Pan()
-    .activeOffsetY([-8, 8])
-    .onUpdate((event) => { dragY.value = Math.max(0, event.translationY); })
-    .onEnd((event) => {
-      if (dragY.value > 74 || event.velocityY > 850) runOnJS(onClose)();
-      else dragY.value = reducedMotion ? 0 : withSpring(0, { damping: 23, stiffness: 270, mass: 0.62 });
-    })
-    .onFinalize((_event, success) => {
-      if (!success) dragY.value = reducedMotion ? 0 : withSpring(0, { damping: 23, stiffness: 270, mass: 0.62 });
-    });
   const cardStyle = useAnimatedStyle(() => ({
-    opacity: 1 - Math.min(Math.abs(dragX.value) / 250, 0.18),
+    opacity: 1 - Math.min(Math.abs(dragX.value) / 250, 0.16),
     transform: [{ translateX: dragX.value }],
   }));
-  const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(sheetProgress.value, [0, 1], [sheetHeight + 24, 0]) + dragY.value }],
-  }));
-  const backdropStyle = useAnimatedStyle(() => ({ opacity: sheetProgress.value }));
 
-  if (!mounted || !current) return null;
+  const selectCourse = useCallback((code: string) => {
+    const first = studyCardsForCourse(cards, code)[0];
+    if (!first) return;
+    setCourse(code);
+    setSelectedId(first.id);
+    void Haptics.selectionAsync();
+  }, [cards]);
+
   return (
-    <Modal transparent visible={mounted} hardwareAccelerated statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
-      <View style={styles.modalRoot}>
-        <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]}>
-          <BlurView intensity={18} tint="light" style={StyleSheet.absoluteFill} />
-          <Pressable accessibilityRole="button" accessibilityLabel="关闭记忆卡" style={StyleSheet.absoluteFill} onPress={onClose} />
-        </Animated.View>
-        <Animated.View style={[styles.sheet, { height: sheetHeight }, sheetStyle]}>
-          <SafeAreaView edges={['bottom']} style={styles.sheetSafe}>
-          <GestureDetector gesture={sheetPan}>
-            <View style={styles.dragArea}>
-              <View style={styles.handle} />
-            </View>
-          </GestureDetector>
-          <View style={styles.sheetTop}>
-            <View>
-              <Text style={styles.sheetTitle}>記憶</Text>
-              <Text style={styles.sheetSubtitle}>左右滑，切换知识点</Text>
-            </View>
-            <Pressable accessibilityRole="button" accessibilityLabel="关闭记忆卡" hitSlop={12} style={styles.closeButton} onPress={onClose}>
-              <Text style={styles.closeText}>×</Text>
-            </Pressable>
+    <LinearGradient colors={['#E7FAFD', '#F8FDFC', '#F8F2E4']} locations={[0, 0.7, 1]} style={styles.readerBackground}>
+      <View pointerEvents="none" style={styles.readerGlow} />
+      <View pointerEvents="none" style={styles.readerShore} />
+      <SafeAreaView style={styles.readerSafe}>
+        <View style={styles.readerHeader}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="返回"
+            hitSlop={8}
+            onPress={onClose}
+            style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}>
+            <Text style={styles.backArrow}>‹</Text>
+          </Pressable>
+          <Text style={styles.readerTitle}>记忆</Text>
+          <View
+            accessible
+            accessibilityRole="adjustable"
+            accessibilityLabel={current ? `${current.courseCode} 记忆卡 ${currentIndex + 1}，共 ${deck.length} 张` : '记忆卡正在载入'}
+            accessibilityActions={[
+              { name: 'decrement', label: '上一张' },
+              { name: 'increment', label: '下一张' },
+            ]}
+            onAccessibilityAction={(event) => {
+              if (event.nativeEvent.actionName === 'decrement') move(-1);
+              if (event.nativeEvent.actionName === 'increment') move(1);
+            }}
+            style={styles.readerProgressWrap}>
+            <Text style={styles.readerProgress}>{current ? `${currentIndex + 1} / ${deck.length}` : '—'}</Text>
           </View>
+        </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.courseTabsScroll}
-            contentContainerStyle={styles.courseTabs}>
-            {COURSES.map((code) => {
-              const active = code === course;
-              const count = cards.filter((card) => card.courseCode === code).length;
-              return <PressableScale
-                key={code}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                disabled={count === 0}
-                onPress={() => {
-                  const first = studyCardsForCourse(cards, code)[0];
-                  if (!first) return;
-                  setCourse(code);
-                  setSelectedId(first.id);
-                }}
-                style={[styles.courseTab, active && styles.courseTabActive, count === 0 && styles.courseTabDisabled]}>
-                <Text style={[styles.courseTabText, active && styles.courseTabTextActive]}>{code}</Text>
-              </PressableScale>;
-            })}
-          </ScrollView>
+        <View accessibilityRole="tablist" style={styles.courseTabs}>
+          {COURSES.map((code) => {
+            const active = code === course;
+            const count = cards.filter((card) => card.courseCode === code).length;
+            return <PressableScale
+              key={code}
+              accessibilityRole="tab"
+              accessibilityLabel={`${code}，${count} 张`}
+              accessibilityState={{ selected: active, disabled: count === 0 }}
+              disabled={count === 0}
+              onPress={() => selectCourse(code)}
+              style={[styles.courseTab, active && styles.courseTabActive, count === 0 && styles.courseTabDisabled]}>
+              <Text style={[styles.courseTabText, active && styles.courseTabTextActive]}>{code}</Text>
+            </PressableScale>;
+          })}
+        </View>
 
-          <GestureDetector gesture={cardGesture}>
-            <Animated.View style={[styles.deckCard, { width: Math.min(width - 20, 560) }, cardStyle]}>
-              <ScrollView
-                ref={deckScrollRef}
-                nestedScrollEnabled
-                overScrollMode="never"
-                showsVerticalScrollIndicator
-                style={styles.deckScroll}
-                contentContainerStyle={styles.deckContent}>
-                <View style={styles.cardHeader}>
-                  <Text style={styles.cardTopic}>{current.topic}</Text>
-                  <Text style={styles.cardSignal}>{current.signal}</Text>
-                </View>
-                <Text style={styles.cardPrompt}>{current.prompt}</Text>
+        {current ? <GestureDetector gesture={cardGesture}>
+          <Animated.View style={[styles.readerBody, cardStyle]}>
+            <ScrollView
+              ref={contentScrollRef}
+              nestedScrollEnabled
+              overScrollMode="never"
+              showsVerticalScrollIndicator
+              style={styles.readerScroll}
+              contentContainerStyle={styles.readerContent}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTopic}>{current.topic}</Text>
+                <Text style={styles.cardSignal}>{current.signal}</Text>
+              </View>
+              <Text style={styles.cardPrompt}>{current.prompt}</Text>
 
-                {current.latex.length > 0 && <View style={styles.formulaGroup}>
-                  {current.latex.map((latex) => <View key={latex} pointerEvents="none" style={[styles.formula, { height: formulaHeight(latex, true) }]}>
-                    <MathFormula
-                      latex={latex}
-                      fontSize={latex.length > 160 ? 15 : 18}
-                      dom={{ scrollEnabled: false, showsVerticalScrollIndicator: false, showsHorizontalScrollIndicator: false }}
-                    />
-                  </View>)}
-                </View>}
+              {formula && <View
+                pointerEvents="none"
+                style={[styles.formulaGroup, { height: continuousFormulaHeight(current.latex) }]}>
+                <MathFormula
+                  latex={formula}
+                  fontSize={current.latex.some((item) => item.length > 160) ? 15 : 18}
+                  dom={{ scrollEnabled: false, showsVerticalScrollIndicator: false, showsHorizontalScrollIndicator: false }}
+                />
+              </View>}
 
-                <View style={styles.answerSection}>
-                  <Text style={styles.answerLabel}>记住</Text>
-                  {current.answer.map((answer, index) => <View key={answer} style={styles.answerRow}>
-                    <Text style={styles.answerIndex}>{index + 1}</Text>
-                    <Text style={styles.answerText}>{answer}</Text>
-                  </View>)}
-                </View>
+              <View style={styles.answerSection}>
+                <Text style={styles.answerLabel}>记住</Text>
+                {current.answer.map((answer, index) => <View key={answer} style={styles.answerRow}>
+                  <Text style={styles.answerIndex}>{index + 1}</Text>
+                  <Text style={styles.answerText}>{answer}</Text>
+                </View>)}
+              </View>
 
-                {current.terms.length > 0 && <View style={styles.termSection}>
-                  {current.terms.map((term) => <View key={term.term} style={styles.termRow}>
-                    <Text style={styles.termName}>{term.term}</Text>
-                    <Text style={styles.termMeaning}>{term.meaning}</Text>
-                  </View>)}
-                </View>}
+              {current.terms.length > 0 && <View style={styles.termSection}>
+                {current.terms.map((term, index) => <View key={term.term} style={[styles.termRow, index < current.terms.length - 1 && styles.termRowBorder]}>
+                  <Text style={styles.termName}>{term.term}</Text>
+                  <Text style={styles.termMeaning}>{term.meaning}</Text>
+                </View>)}
+              </View>}
 
-                {current.trap && <View style={styles.trap}>
-                  <Text style={styles.trapLabel}>易错</Text>
-                  <Text style={styles.trapText}>{current.trap}</Text>
-                </View>}
-              </ScrollView>
-            </Animated.View>
-          </GestureDetector>
-
-          <View style={styles.deckFooter}>
-            <PressableScale accessibilityRole="button" accessibilityLabel="上一张" hitSlop={8} onPress={() => move(-1)} style={styles.navButton}>
-              <Text style={styles.navArrow}>‹</Text>
-            </PressableScale>
-            <Text style={styles.progress}>{currentIndex + 1} / {deck.length}</Text>
-            <PressableScale accessibilityRole="button" accessibilityLabel="下一张" hitSlop={8} onPress={() => move(1)} style={styles.navButton}>
-              <Text style={styles.navArrow}>›</Text>
-            </PressableScale>
-          </View>
-          </SafeAreaView>
-        </Animated.View>
-      </View>
-    </Modal>
+              {current.trap && <View style={styles.trap}>
+                <Text style={styles.trapLabel}>易错</Text>
+                <Text style={styles.trapText}>{current.trap}</Text>
+              </View>}
+            </ScrollView>
+          </Animated.View>
+        </GestureDetector> : <View style={styles.readerEmpty}>
+          <Text style={styles.readerEmptyText}>正在载入记忆卡</Text>
+        </View>}
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
@@ -307,47 +283,44 @@ const styles = StyleSheet.create({
   previewAction: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   previewHint: { color: palette.muted, fontSize: 11, lineHeight: 16, fontFamily: typography.regular },
   previewArrow: { color: '#70A8B4', fontSize: 21, lineHeight: 24, fontFamily: typography.regular },
-  modalRoot: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(15,70,82,0.08)' },
-  backdrop: { backgroundColor: 'rgba(15,70,82,0.08)' },
-  sheet: { borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: 'rgba(249,254,254,0.995)', shadowColor: '#0A5268', shadowOpacity: 0.16, shadowRadius: 30, shadowOffset: { width: 0, height: -9 }, elevation: 24, overflow: 'hidden' },
-  sheetSafe: { flex: 1, alignItems: 'center', paddingHorizontal: 10 },
-  dragArea: { width: '100%', height: 20, alignItems: 'center', justifyContent: 'center' },
-  handle: { width: 42, height: 4, borderRadius: 4, backgroundColor: 'rgba(48,124,143,0.22)' },
-  sheetTop: { width: '100%', height: 60, paddingHorizontal: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  sheetTitle: { color: palette.ink, fontSize: 33, lineHeight: 40, fontFamily: typography.display },
-  sheetSubtitle: { marginTop: -2, color: palette.muted, fontSize: 10, lineHeight: 15, fontFamily: typography.regular },
-  closeButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: '#E7F7F9' },
-  closeText: { marginTop: -2, color: palette.inkSoft, fontSize: 26, lineHeight: 30, fontFamily: typography.regular },
-  courseTabsScroll: { width: '100%', height: 48, flexGrow: 0, flexShrink: 0 },
-  courseTabs: { minWidth: '100%', height: 48, paddingVertical: 5, paddingHorizontal: 1, flexGrow: 1, justifyContent: 'space-between', gap: 7 },
-  courseTab: { minWidth: 75, height: 36, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.line, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.55)' },
+  readerBackground: { flex: 1 },
+  readerGlow: { position: 'absolute', top: -160, right: -150, width: 390, height: 390, borderRadius: 200, backgroundColor: 'rgba(63,211,228,0.18)' },
+  readerShore: { position: 'absolute', left: -130, right: -120, bottom: -230, height: 390, borderTopLeftRadius: 280, borderTopRightRadius: 220, backgroundColor: 'rgba(255,248,225,0.58)', transform: [{ rotate: '-5deg' }] },
+  readerSafe: { flex: 1 },
+  readerHeader: { height: 55, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(29,137,158,0.10)' },
+  backButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },
+  backButtonPressed: { backgroundColor: 'rgba(255,255,255,0.58)' },
+  backArrow: { marginTop: -3, color: palette.inkSoft, fontSize: 36, lineHeight: 40, fontFamily: typography.regular },
+  readerTitle: { flex: 1, color: palette.ink, fontSize: 29, lineHeight: 38, fontFamily: typography.display },
+  readerProgressWrap: { minWidth: 62, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' },
+  readerProgress: { color: palette.muted, fontSize: 11, lineHeight: 16, fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
+  courseTabs: { height: 48, marginHorizontal: 17, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  courseTab: { flex: 1, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.line, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.52)' },
   courseTabActive: { borderColor: 'rgba(18,159,187,0.34)', backgroundColor: '#DAF5F7' },
-  courseTabDisabled: { opacity: 0.38 },
+  courseTabDisabled: { opacity: 0.36 },
   courseTabText: { color: palette.muted, fontSize: 11, lineHeight: 16, fontFamily: typography.medium },
   courseTabTextActive: { color: palette.cyanDeep },
-  deckCard: { flex: 1, minHeight: 0, alignSelf: 'center', marginTop: 6, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(20,142,166,0.18)', borderRadius: 25, backgroundColor: 'rgba(255,255,253,0.96)', shadowColor: '#155B6B', shadowOpacity: 0.07, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 3, overflow: 'hidden' },
-  deckScroll: { flex: 1 },
-  deckContent: { paddingHorizontal: 22, paddingTop: 21, paddingBottom: 32 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  cardTopic: { flex: 1, color: palette.cyanDeep, fontSize: 11, lineHeight: 16, fontFamily: typography.medium },
+  readerBody: { flex: 1, minHeight: 0 },
+  readerScroll: { flex: 1 },
+  readerContent: { width: '100%', maxWidth: 680, alignSelf: 'center', paddingHorizontal: 23, paddingTop: 20, paddingBottom: 72 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
+  cardTopic: { flex: 1, color: palette.cyanDeep, fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
   cardSignal: { color: palette.muted, fontSize: 10, lineHeight: 15, fontFamily: typography.regular },
-  cardPrompt: { marginTop: 12, color: palette.ink, fontSize: 27, lineHeight: 36, fontFamily: typography.medium, letterSpacing: -0.45 },
-  formulaGroup: { marginTop: 15, paddingVertical: 3, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(20,142,166,0.12)' },
-  formula: { marginHorizontal: -4, backgroundColor: 'transparent', overflow: 'hidden' },
-  answerSection: { marginTop: 22, paddingTop: 17, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.line },
-  answerLabel: { marginBottom: 12, color: palette.inkSoft, fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
-  answerRow: { minHeight: 32, flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
-  answerIndex: { width: 20, height: 20, paddingTop: 1, borderRadius: 10, color: palette.cyanDeep, backgroundColor: '#E0F6F8', fontSize: 10, lineHeight: 18, textAlign: 'center', fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
-  answerText: { flex: 1, color: palette.ink, fontSize: 15, lineHeight: 23, fontFamily: typography.regular },
-  termSection: { marginTop: 18, paddingHorizontal: 14, borderWidth: 1, borderColor: palette.line, borderRadius: 17, backgroundColor: 'rgba(248,252,250,0.78)' },
-  termRow: { minHeight: 45, paddingVertical: 11, flexDirection: 'row', alignItems: 'flex-start', gap: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.line },
-  termName: { width: 88, color: palette.ink, fontSize: 12, lineHeight: 18, fontFamily: typography.medium },
-  termMeaning: { flex: 1, color: palette.inkSoft, fontSize: 12, lineHeight: 18, fontFamily: typography.regular },
-  trap: { marginTop: 18, paddingHorizontal: 15, paddingVertical: 13, borderLeftWidth: 3, borderLeftColor: palette.quiz, borderRadius: 12, backgroundColor: 'rgba(250,234,227,0.64)' },
+  cardPrompt: { marginTop: 14, color: palette.ink, fontSize: 29, lineHeight: 39, fontFamily: typography.medium, letterSpacing: -0.5 },
+  formulaGroup: { marginTop: 18, marginHorizontal: -5, backgroundColor: 'transparent', overflow: 'hidden' },
+  answerSection: { marginTop: 25, paddingTop: 20, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.line },
+  answerLabel: { marginBottom: 13, color: palette.inkSoft, fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
+  answerRow: { minHeight: 36, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  answerIndex: { width: 21, height: 21, paddingTop: 1, borderRadius: 11, color: palette.cyanDeep, backgroundColor: '#E0F6F8', fontSize: 10, lineHeight: 19, textAlign: 'center', fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
+  answerText: { flex: 1, color: palette.ink, fontSize: 16, lineHeight: 25, fontFamily: typography.regular },
+  termSection: { marginTop: 21, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.line },
+  termRow: { minHeight: 50, paddingVertical: 13, flexDirection: 'row', alignItems: 'flex-start', gap: 16 },
+  termRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.line },
+  termName: { width: 96, color: palette.ink, fontSize: 13, lineHeight: 20, fontFamily: typography.medium },
+  termMeaning: { flex: 1, color: palette.inkSoft, fontSize: 13, lineHeight: 20, fontFamily: typography.regular },
+  trap: { marginTop: 22, paddingLeft: 15, paddingVertical: 4, borderLeftWidth: 3, borderLeftColor: palette.quiz },
   trapLabel: { color: palette.quiz, fontSize: 10, lineHeight: 15, fontFamily: typography.medium },
-  trapText: { marginTop: 3, color: palette.inkSoft, fontSize: 13, lineHeight: 20, fontFamily: typography.regular },
-  deckFooter: { width: '100%', height: 48, flexShrink: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 22 },
-  navButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: 'transparent' },
-  navArrow: { marginTop: -2, color: '#3F91A2', fontSize: 25, lineHeight: 30, fontFamily: typography.regular },
-  progress: { minWidth: 56, color: palette.muted, fontSize: 11, lineHeight: 16, textAlign: 'center', fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
+  trapText: { marginTop: 4, color: palette.inkSoft, fontSize: 14, lineHeight: 22, fontFamily: typography.regular },
+  readerEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 72 },
+  readerEmptyText: { color: palette.muted, fontSize: 14, lineHeight: 20, fontFamily: typography.regular },
 });

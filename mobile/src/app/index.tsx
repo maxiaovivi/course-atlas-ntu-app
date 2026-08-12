@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import * as Updates from 'expo-updates';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated, { cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
 import { DetailSelection, DetailSheet } from '@/components/detail-sheet';
-import { MemoryCardCarousel, MemorySheet } from '@/components/memory-cards';
+import { MemoryCardCarousel } from '@/components/memory-cards';
 import { PressableScale } from '@/components/pressable-scale';
 import { palette } from '@/constants/palette';
 import { typography } from '@/constants/typography';
@@ -13,7 +14,6 @@ import { agendaDateParts, agendaTypeLabel, AgendaViewItem, upcomingAgendaItems }
 import { singaporeDateKey } from '@/core/calendar';
 import { materialsForCourse } from '@/core/library';
 import { AcademicCalendarItem, CourseSession, getNextClass } from '@/core/schedule';
-import { StudyCard } from '@/core/study-cards';
 import { useCalendar } from '@/hooks/use-calendar';
 import { useLibrary } from '@/hooks/use-library';
 import { useNow } from '@/hooks/use-now';
@@ -81,13 +81,29 @@ function breakCountdown(item: AcademicCalendarItem, now: Date) {
   return `${Math.max(0, Math.round((start - current) / 86_400_000))}天`;
 }
 
+function updateVersionLabel(createdAt: Date | undefined, isEmbeddedLaunch: boolean, isEmergencyLaunch: boolean) {
+  if (!createdAt || Number.isNaN(createdAt.getTime())) return '本地预览';
+  const values = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(createdAt).map((part) => [part.type, part.value]));
+  const source = isEmergencyLaunch ? '内置回退' : isEmbeddedLaunch ? '内置' : 'OTA';
+  return `${source} · ${values.year}.${String(Number(values.month)).padStart(2, '0')}.${String(Number(values.day)).padStart(2, '0')} ${values.hour}:${values.minute}`;
+}
+
 export default function HomeScreen() {
+  const router = useRouter();
+  const { currentlyRunning, isUpdatePending } = Updates.useUpdates();
   const { schedule, refreshing: scheduleRefreshing, error: scheduleError, refresh: refreshSchedule } = useSchedule();
   const { calendar, source: calendarSource, state: calendarState, activate } = useCalendar();
   const { library, source: librarySource, refreshing: libraryRefreshing, error: libraryError, refresh: refreshLibrary } = useLibrary();
   const { payload: studyCards, source: studyCardSource, refreshing: studyCardRefreshing, error: studyCardError, refresh: refreshStudyCards } = useStudyCards();
   const [selection, setSelection] = useState<DetailSelection | null>(null);
-  const [memoryCard, setMemoryCard] = useState<StudyCard | null>(null);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const now = useNow();
   const nextClass = useMemo(() => getNextClass(schedule, now), [now, schedule]);
@@ -104,17 +120,12 @@ export default function HomeScreen() {
       .slice().sort((left, right) => left.weekday - right.weekday || left.start.localeCompare(right.start)),
     [nextClass, schedule.courses],
   );
-  const reducedMotion = useReducedMotion();
-  const syncOpacity = useSharedValue(1);
   const syncing = scheduleRefreshing || calendarState === 'refreshing' || libraryRefreshing || studyCardRefreshing;
-
-  useEffect(() => {
-    cancelAnimation(syncOpacity);
-    syncOpacity.value = syncing && !reducedMotion
-      ? withRepeat(withSequence(withTiming(0.28, { duration: 520 }), withTiming(1, { duration: 520 })), -1, false)
-      : 1;
-  }, [reducedMotion, syncOpacity, syncing]);
-  const syncDotStyle = useAnimatedStyle(() => ({ opacity: syncOpacity.value }));
+  const versionLabel = updateVersionLabel(
+    currentlyRunning.createdAt,
+    currentlyRunning.isEmbeddedLaunch,
+    currentlyRunning.isEmergencyLaunch,
+  );
 
   const refreshIssue = scheduleError || calendarState === 'error' || libraryError || studyCardError
     ? '失败'
@@ -160,17 +171,7 @@ export default function HomeScreen() {
             tintColor={palette.cyanDeep}
           />)}>
           <View style={styles.topbar}>
-            <Text style={styles.brand}>知嶼</Text>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="刷新课程、测验、校历、资料和记忆卡"
-              disabled={syncing}
-              hitSlop={8}
-              onPress={() => void refreshAll()}
-              style={[styles.refreshButton, Boolean(refreshIssue || syncing) && styles.refreshButtonWide]}>
-              {syncing && <Animated.View style={[styles.syncDot, syncDotStyle]} />}
-              <Text style={[styles.refreshText, refreshIssue && styles.refreshError]}>{syncing ? '同步' : refreshIssue ?? '↻'}</Text>
-            </PressableScale>
+            <Text style={styles.brand}>知屿</Text>
           </View>
 
           <View style={styles.heading}>
@@ -197,20 +198,24 @@ export default function HomeScreen() {
               </LinearGradient>
             </PressableScale>
           ) : (
-            <PressableScale accessibilityRole="button" accessibilityLabel="刷新课表" style={styles.emptyCard} onPress={() => void refreshAll()}>
+            <View accessibilityLabel="暂无课表，下拉刷新" style={styles.emptyCard}>
               <View style={styles.emptyPulse} />
               <Text style={styles.emptyTitle}>{scheduleRefreshing ? '正在同步' : teachingFinished ? '课程已结束' : '暂无课表'}</Text>
-            </PressableScale>
+              {!scheduleRefreshing && !teachingFinished && <Text style={styles.emptyHint}>下拉刷新</Text>}
+            </View>
           )}
 
-          <MemoryCardCarousel cards={studyCards.cards} onOpen={setMemoryCard} />
+          <MemoryCardCarousel
+            cards={studyCards.cards}
+            onOpen={(card) => router.push({ pathname: '/memory', params: { cardId: card.id } })}
+          />
 
           {nextBreak && <PressableScale
             accessibilityRole="button"
             accessibilityLabel={`校历，${nextBreak.title}，${nextBreak.start} 到 ${nextBreak.end}`}
             style={styles.calendarCard}
             onPress={() => setSelection({ kind: 'calendar', items: calendarItems })}>
-            <Text style={styles.calendarHeading}>校曆</Text>
+            <Text style={styles.calendarHeading}>校历</Text>
             <Text numberOfLines={1} style={styles.calendarSummary}>
               {nextBreak.title} · {compactDateRange(nextBreak.start, nextBreak.end)} · {breakCountdown(nextBreak, now)}
             </Text>
@@ -220,7 +225,7 @@ export default function HomeScreen() {
           <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>近期</Text></View>
           <View style={styles.agendaList}>
             {agenda.length === 0
-              ? <Text style={styles.listEmpty}>{calendar.updatedAt || schedule.updatedAt ? '暂无事项' : '刷新'}</Text>
+              ? <Text style={styles.listEmpty}>暂无事项</Text>
               : agenda.map((item, index) => {
                 const date = agendaDateParts(item);
                 const accent = agendaAccent(item);
@@ -268,10 +273,15 @@ export default function HomeScreen() {
               ))}
             </View>
           </>}
+
+          <Text
+            accessibilityLabel={`当前运行版本，${versionLabel}${isUpdatePending ? '，新版待重启' : ''}${refreshIssue ? `，${refreshIssue}` : ''}`}
+            style={[styles.versionText, refreshIssue && styles.versionIssue]}>
+            {versionLabel}{isUpdatePending ? ' · 新版待重启' : ''}{refreshIssue ? ` · ${refreshIssue}` : ''}
+          </Text>
         </ScrollView>
       </SafeAreaView>
       <DetailSheet selection={resolvedSelection} visible={Boolean(selection)} onClose={() => setSelection(null)} />
-      <MemorySheet cards={studyCards.cards} initialCard={memoryCard} visible={Boolean(memoryCard)} onClose={() => setMemoryCard(null)} />
     </LinearGradient>
   );
 }
@@ -282,13 +292,8 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingBottom: 40 },
   glow: { position: 'absolute', top: -90, right: -110, width: 315, height: 315, borderRadius: 165, backgroundColor: 'rgba(63, 211, 228, 0.21)' },
   shore: { position: 'absolute', left: -80, right: -100, bottom: -150, height: 330, borderTopLeftRadius: 250, borderTopRightRadius: 180, backgroundColor: 'rgba(255, 248, 225, 0.62)', transform: [{ rotate: '-5deg' }] },
-  topbar: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  topbar: { minHeight: 58, flexDirection: 'row', alignItems: 'center' },
   brand: { color: palette.ink, fontSize: 27, lineHeight: 34, fontFamily: typography.display },
-  refreshButton: { width: 36, minHeight: 34, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: palette.line, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.66)' },
-  refreshButtonWide: { width: 'auto', minWidth: 64 },
-  refreshText: { color: palette.inkSoft, fontSize: 16, lineHeight: 20, fontFamily: typography.medium },
-  refreshError: { color: palette.deadline, fontSize: 12 },
-  syncDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: palette.cyan },
   heading: { marginTop: 18, marginBottom: 16 },
   overline: { color: '#4F8997', fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
   title: { marginTop: 3, color: palette.ink, fontSize: 39, lineHeight: 49, fontFamily: typography.display },
@@ -304,6 +309,7 @@ const styles = StyleSheet.create({
   emptyCard: { minHeight: 122, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.line, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.76)' },
   emptyPulse: { width: 9, height: 9, marginBottom: 12, borderRadius: 5, backgroundColor: palette.cyan },
   emptyTitle: { color: palette.ink, fontSize: 17, lineHeight: 23, fontFamily: typography.medium },
+  emptyHint: { marginTop: 5, color: palette.muted, fontSize: 11, lineHeight: 16, fontFamily: typography.regular },
   calendarCard: { minHeight: 66, marginTop: 15, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 13, borderWidth: 1, borderColor: palette.line, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.72)' },
   calendarHeading: { color: palette.cyanDeep, fontSize: 22, lineHeight: 30, fontFamily: typography.display },
   calendarSummary: { flex: 1, color: palette.inkSoft, fontSize: 13, lineHeight: 19, fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
@@ -328,4 +334,6 @@ const styles = StyleSheet.create({
   courseTime: { width: 91, color: palette.inkSoft, fontSize: 12, lineHeight: 17, fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
   courseLocation: { flex: 1, color: palette.muted, fontSize: 12, lineHeight: 17, textAlign: 'right', fontFamily: typography.regular },
   smallArrow: { width: 11, color: '#70A8B4', fontSize: 19, lineHeight: 23, fontFamily: typography.regular },
+  versionText: { marginTop: 22, color: 'rgba(67, 119, 129, 0.58)', fontSize: 10, lineHeight: 15, textAlign: 'center', fontFamily: typography.regular, fontVariant: ['tabular-nums'] },
+  versionIssue: { color: 'rgba(184, 91, 73, 0.72)' },
 });
