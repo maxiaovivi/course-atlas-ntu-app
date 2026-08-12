@@ -1,11 +1,11 @@
+/* eslint-disable react-hooks/immutability -- Reanimated shared values are intentionally mutable UI-thread refs. */
 /* eslint-disable react-hooks/set-state-in-effect -- Modal state resets to the card opened from the carousel. */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { interpolate, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import MathFormula from '@/components/math-formula.dom';
@@ -66,7 +66,7 @@ export function MemoryCardCarousel({ cards, onOpen }: { cards: StudyCard[]; onOp
           onPress={() => onOpen(card)}
           style={styles.preview}>
           <View style={styles.previewTop}>
-            <Text style={styles.previewTitle}>记憶</Text>
+            <Text style={styles.previewTitle}>記憶</Text>
             <Text numberOfLines={1} style={styles.previewMeta}>{card.courseCode} · {card.signal}</Text>
           </View>
           <Text numberOfLines={2} style={styles.previewPrompt}>{card.prompt}</Text>
@@ -98,25 +98,52 @@ type SheetProps = {
 };
 
 export function MemorySheet({ cards, initialCard, visible, onClose }: SheetProps) {
-  const { width } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const reducedMotion = useReducedMotion();
+  const [mounted, setMounted] = useState(visible);
   const [course, setCourse] = useState<string>(initialCard?.courseCode ?? COURSES[0]);
   const [selectedId, setSelectedId] = useState(initialCard?.id ?? '');
+  const deckScrollRef = useRef<ScrollView>(null);
   const dragX = useSharedValue(0);
+  const dragY = useSharedValue(0);
+  const sheetProgress = useSharedValue(0);
+  const sheetHeight = height * 0.94;
 
   useEffect(() => {
-    if (!visible || !initialCard) return;
-    setCourse(initialCard.courseCode);
-    setSelectedId(initialCard.id);
-  }, [initialCard, visible]);
+    if (visible) {
+      if (initialCard) {
+        setCourse(initialCard.courseCode);
+        setSelectedId(initialCard.id);
+      }
+      setMounted(true);
+      dragY.value = 0;
+      sheetProgress.value = reducedMotion ? 1 : withTiming(1, { duration: 220 });
+      void Haptics.selectionAsync();
+      return;
+    }
+    if (reducedMotion) {
+      sheetProgress.value = 0;
+      setMounted(false);
+      return;
+    }
+    sheetProgress.value = withTiming(0, { duration: 220 }, (finished) => {
+      if (finished) runOnJS(setMounted)(false);
+    });
+  }, [dragY, initialCard, reducedMotion, sheetProgress, visible]);
 
   const deck = useMemo(() => studyCardsForCourse(cards, course), [cards, course]);
   const currentIndex = Math.max(0, deck.findIndex((card) => card.id === selectedId));
   const current = deck[currentIndex] ?? deck[0] ?? null;
+  const currentId = current?.id ?? null;
 
   useEffect(() => {
     if (current && current.id !== selectedId) setSelectedId(current.id);
   }, [current, selectedId]);
+
+  useEffect(() => {
+    if (!visible || !currentId) return;
+    deckScrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [course, currentId, visible]);
 
   const move = useCallback((direction: -1 | 1) => {
     if (deck.length < 2) return;
@@ -134,21 +161,44 @@ export function MemorySheet({ cards, initialCard, visible, onClose }: SheetProps
       else if (event.translationX > 55 || event.velocityX > 650) runOnJS(move)(-1);
       dragX.value = reducedMotion ? 0 : withSpring(0, { damping: 20, stiffness: 250, mass: 0.58 });
     });
+  const cardGesture = Gesture.Simultaneous(pan, Gesture.Native());
+  const sheetPan = Gesture.Pan()
+    .activeOffsetY([-8, 8])
+    .onUpdate((event) => { dragY.value = Math.max(0, event.translationY); })
+    .onEnd((event) => {
+      if (dragY.value > 74 || event.velocityY > 850) runOnJS(onClose)();
+      else dragY.value = reducedMotion ? 0 : withSpring(0, { damping: 23, stiffness: 270, mass: 0.62 });
+    })
+    .onFinalize((_event, success) => {
+      if (!success) dragY.value = reducedMotion ? 0 : withSpring(0, { damping: 23, stiffness: 270, mass: 0.62 });
+    });
   const cardStyle = useAnimatedStyle(() => ({
     opacity: 1 - Math.min(Math.abs(dragX.value) / 250, 0.18),
     transform: [{ translateX: dragX.value }],
   }));
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: interpolate(sheetProgress.value, [0, 1], [sheetHeight + 24, 0]) + dragY.value }],
+  }));
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: sheetProgress.value }));
 
-  if (!current) return null;
+  if (!mounted || !current) return null;
   return (
-    <Modal transparent visible={visible} hardwareAccelerated statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
+    <Modal transparent visible={mounted} hardwareAccelerated statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
       <View style={styles.modalRoot}>
-        <BlurView intensity={26} tint="light" style={StyleSheet.absoluteFill} />
-        <LinearGradient colors={['rgba(224,249,251,0.93)', 'rgba(251,253,249,0.98)', 'rgba(248,241,226,0.96)']} style={StyleSheet.absoluteFill} />
-        <SafeAreaView style={styles.modalSafe}>
+        <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]}>
+          <BlurView intensity={18} tint="light" style={StyleSheet.absoluteFill} />
+          <Pressable accessibilityRole="button" accessibilityLabel="关闭记忆卡" style={StyleSheet.absoluteFill} onPress={onClose} />
+        </Animated.View>
+        <Animated.View style={[styles.sheet, { height: sheetHeight }, sheetStyle]}>
+          <SafeAreaView edges={['bottom']} style={styles.sheetSafe}>
+          <GestureDetector gesture={sheetPan}>
+            <View style={styles.dragArea}>
+              <View style={styles.handle} />
+            </View>
+          </GestureDetector>
           <View style={styles.sheetTop}>
             <View>
-              <Text style={styles.sheetTitle}>记憶</Text>
+              <Text style={styles.sheetTitle}>記憶</Text>
               <Text style={styles.sheetSubtitle}>左右滑，切换知识点</Text>
             </View>
             <Pressable accessibilityRole="button" accessibilityLabel="关闭记忆卡" hitSlop={12} style={styles.closeButton} onPress={onClose}>
@@ -156,7 +206,11 @@ export function MemorySheet({ cards, initialCard, visible, onClose }: SheetProps
             </Pressable>
           </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.courseTabs}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.courseTabsScroll}
+            contentContainerStyle={styles.courseTabs}>
             {COURSES.map((code) => {
               const active = code === course;
               const count = cards.filter((card) => card.courseCode === code).length;
@@ -177,22 +231,30 @@ export function MemorySheet({ cards, initialCard, visible, onClose }: SheetProps
             })}
           </ScrollView>
 
-          <GestureDetector gesture={pan}>
-            <Animated.View style={[styles.deckCard, { width: Math.min(width - 32, 520) }, cardStyle]}>
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.deckContent}>
+          <GestureDetector gesture={cardGesture}>
+            <Animated.View style={[styles.deckCard, { width: Math.min(width - 20, 560) }, cardStyle]}>
+              <ScrollView
+                ref={deckScrollRef}
+                nestedScrollEnabled
+                overScrollMode="never"
+                showsVerticalScrollIndicator
+                style={styles.deckScroll}
+                contentContainerStyle={styles.deckContent}>
                 <View style={styles.cardHeader}>
                   <Text style={styles.cardTopic}>{current.topic}</Text>
                   <Text style={styles.cardSignal}>{current.signal}</Text>
                 </View>
                 <Text style={styles.cardPrompt}>{current.prompt}</Text>
 
-                {current.latex.map((latex) => <View key={latex} pointerEvents="none" style={[styles.formula, { height: formulaHeight(latex, true) }]}>
-                  <MathFormula
-                    latex={latex}
-                    fontSize={latex.length > 160 ? 15 : 18}
-                    dom={{ scrollEnabled: false, showsVerticalScrollIndicator: false, showsHorizontalScrollIndicator: false }}
-                  />
-                </View>)}
+                {current.latex.length > 0 && <View style={styles.formulaGroup}>
+                  {current.latex.map((latex) => <View key={latex} pointerEvents="none" style={[styles.formula, { height: formulaHeight(latex, true) }]}>
+                    <MathFormula
+                      latex={latex}
+                      fontSize={latex.length > 160 ? 15 : 18}
+                      dom={{ scrollEnabled: false, showsVerticalScrollIndicator: false, showsHorizontalScrollIndicator: false }}
+                    />
+                  </View>)}
+                </View>}
 
                 <View style={styles.answerSection}>
                   <Text style={styles.answerLabel}>记住</Text>
@@ -218,15 +280,16 @@ export function MemorySheet({ cards, initialCard, visible, onClose }: SheetProps
           </GestureDetector>
 
           <View style={styles.deckFooter}>
-            <PressableScale accessibilityRole="button" accessibilityLabel="上一张" onPress={() => move(-1)} style={styles.navButton}>
+            <PressableScale accessibilityRole="button" accessibilityLabel="上一张" hitSlop={8} onPress={() => move(-1)} style={styles.navButton}>
               <Text style={styles.navArrow}>‹</Text>
             </PressableScale>
             <Text style={styles.progress}>{currentIndex + 1} / {deck.length}</Text>
-            <PressableScale accessibilityRole="button" accessibilityLabel="下一张" onPress={() => move(1)} style={styles.navButton}>
+            <PressableScale accessibilityRole="button" accessibilityLabel="下一张" hitSlop={8} onPress={() => move(1)} style={styles.navButton}>
               <Text style={styles.navArrow}>›</Text>
             </PressableScale>
           </View>
-        </SafeAreaView>
+          </SafeAreaView>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -244,26 +307,33 @@ const styles = StyleSheet.create({
   previewAction: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   previewHint: { color: palette.muted, fontSize: 11, lineHeight: 16, fontFamily: typography.regular },
   previewArrow: { color: '#70A8B4', fontSize: 21, lineHeight: 24, fontFamily: typography.regular },
-  modalRoot: { flex: 1, backgroundColor: 'rgba(16,69,80,0.1)' },
-  modalSafe: { flex: 1, alignItems: 'center', paddingHorizontal: 16 },
-  sheetTop: { width: '100%', minHeight: 78, paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  sheetTitle: { color: palette.ink, fontSize: 31, lineHeight: 40, fontFamily: typography.display },
+  modalRoot: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(15,70,82,0.08)' },
+  backdrop: { backgroundColor: 'rgba(15,70,82,0.08)' },
+  sheet: { borderTopLeftRadius: 32, borderTopRightRadius: 32, backgroundColor: 'rgba(249,254,254,0.995)', shadowColor: '#0A5268', shadowOpacity: 0.16, shadowRadius: 30, shadowOffset: { width: 0, height: -9 }, elevation: 24, overflow: 'hidden' },
+  sheetSafe: { flex: 1, alignItems: 'center', paddingHorizontal: 10 },
+  dragArea: { width: '100%', height: 20, alignItems: 'center', justifyContent: 'center' },
+  handle: { width: 42, height: 4, borderRadius: 4, backgroundColor: 'rgba(48,124,143,0.22)' },
+  sheetTop: { width: '100%', height: 60, paddingHorizontal: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sheetTitle: { color: palette.ink, fontSize: 33, lineHeight: 40, fontFamily: typography.display },
   sheetSubtitle: { marginTop: -2, color: palette.muted, fontSize: 10, lineHeight: 15, fontFamily: typography.regular },
-  closeButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.68)' },
-  closeText: { marginTop: -2, color: palette.inkSoft, fontSize: 27, lineHeight: 31, fontFamily: typography.regular },
-  courseTabs: { minHeight: 47, paddingVertical: 5, paddingHorizontal: 1, gap: 7 },
+  closeButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: '#E7F7F9' },
+  closeText: { marginTop: -2, color: palette.inkSoft, fontSize: 26, lineHeight: 30, fontFamily: typography.regular },
+  courseTabsScroll: { width: '100%', height: 48, flexGrow: 0, flexShrink: 0 },
+  courseTabs: { minWidth: '100%', height: 48, paddingVertical: 5, paddingHorizontal: 1, flexGrow: 1, justifyContent: 'space-between', gap: 7 },
   courseTab: { minWidth: 75, height: 36, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.line, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.55)' },
   courseTabActive: { borderColor: 'rgba(18,159,187,0.34)', backgroundColor: '#DAF5F7' },
   courseTabDisabled: { opacity: 0.38 },
   courseTabText: { color: palette.muted, fontSize: 11, lineHeight: 16, fontFamily: typography.medium },
   courseTabTextActive: { color: palette.cyanDeep },
-  deckCard: { flex: 1, minHeight: 0, marginTop: 10, borderWidth: 1, borderColor: 'rgba(20,142,166,0.16)', borderRadius: 29, backgroundColor: 'rgba(255,255,253,0.94)', shadowColor: '#155B6B', shadowOpacity: 0.1, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 8, overflow: 'hidden' },
-  deckContent: { paddingHorizontal: 23, paddingTop: 22, paddingBottom: 28 },
+  deckCard: { flex: 1, minHeight: 0, alignSelf: 'center', marginTop: 6, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(20,142,166,0.18)', borderRadius: 25, backgroundColor: 'rgba(255,255,253,0.96)', shadowColor: '#155B6B', shadowOpacity: 0.07, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 3, overflow: 'hidden' },
+  deckScroll: { flex: 1 },
+  deckContent: { paddingHorizontal: 22, paddingTop: 21, paddingBottom: 32 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   cardTopic: { flex: 1, color: palette.cyanDeep, fontSize: 11, lineHeight: 16, fontFamily: typography.medium },
   cardSignal: { color: palette.muted, fontSize: 10, lineHeight: 15, fontFamily: typography.regular },
   cardPrompt: { marginTop: 12, color: palette.ink, fontSize: 27, lineHeight: 36, fontFamily: typography.medium, letterSpacing: -0.45 },
-  formula: { marginTop: 14, marginHorizontal: -8, borderRadius: 15, backgroundColor: 'rgba(229,248,250,0.46)', overflow: 'hidden' },
+  formulaGroup: { marginTop: 15, paddingVertical: 3, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(20,142,166,0.12)' },
+  formula: { marginHorizontal: -4, backgroundColor: 'transparent', overflow: 'hidden' },
   answerSection: { marginTop: 22, paddingTop: 17, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.line },
   answerLabel: { marginBottom: 12, color: palette.inkSoft, fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
   answerRow: { minHeight: 32, flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
@@ -276,8 +346,8 @@ const styles = StyleSheet.create({
   trap: { marginTop: 18, paddingHorizontal: 15, paddingVertical: 13, borderLeftWidth: 3, borderLeftColor: palette.quiz, borderRadius: 12, backgroundColor: 'rgba(250,234,227,0.64)' },
   trapLabel: { color: palette.quiz, fontSize: 10, lineHeight: 15, fontFamily: typography.medium },
   trapText: { marginTop: 3, color: palette.inkSoft, fontSize: 13, lineHeight: 20, fontFamily: typography.regular },
-  deckFooter: { width: '100%', minHeight: 66, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 24 },
-  navButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.line, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.66)' },
-  navArrow: { marginTop: -2, color: palette.cyanDeep, fontSize: 27, lineHeight: 32, fontFamily: typography.regular },
+  deckFooter: { width: '100%', height: 48, flexShrink: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 22 },
+  navButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: 'transparent' },
+  navArrow: { marginTop: -2, color: '#3F91A2', fontSize: 25, lineHeight: 30, fontFamily: typography.regular },
   progress: { minWidth: 56, color: palette.muted, fontSize: 11, lineHeight: 16, textAlign: 'center', fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
 });
