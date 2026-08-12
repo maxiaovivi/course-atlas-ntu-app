@@ -13,7 +13,7 @@ import { palette } from '@/constants/palette';
 import { typography } from '@/constants/typography';
 
 export type DetailSelection =
-  | { kind: 'course'; course: CourseSession; source: string; agenda: AgendaViewItem[] }
+  | { kind: 'course'; course: CourseSession; agenda: AgendaViewItem[] }
   | { kind: 'agenda'; item: AgendaViewItem };
 
 type Props = {
@@ -22,85 +22,103 @@ type Props = {
   onClose: () => void;
 };
 
-function CourseDetails({ course, source, agenda }: { course: CourseSession; source: string; agenda: AgendaViewItem[] }) {
-  const confirmed = course.locationStatus === 'confirmed';
+function showCertainty(item: AgendaViewItem) {
+  if (item.certainty === 'confirmed') return false;
+  if (item.certainty === 'pending') return !/(待公布|尚未公布|待定|待确认)/.test(item.title);
+  return !/(预计|约|推定)/.test(item.title);
+}
+
+function locationForTime(location: string | null, time: string) {
+  if (!location) return null;
+  return time === '课堂内' ? location.replace(/^课堂内\s*·\s*/, '') : location;
+}
+
+function CourseDetails({ course, agenda }: { course: CourseSession; agenda: AgendaViewItem[] }) {
   return (
     <>
-      <Text style={styles.overline}>课程详情</Text>
+      <Text style={styles.overline}>课程</Text>
       <Text style={styles.code}>{course.code}</Text>
       <Text style={styles.title}>{course.name}</Text>
-      <Text style={styles.zh}>{course.zh}</Text>
+      {course.section && <Text style={styles.sectionLabel}>{course.section}</Text>}
 
       <View style={styles.primaryRow}>
         <View>
           <Text style={styles.primaryLabel}>{course.dayLabel}</Text>
-          <Text style={styles.secondaryText}>{course.category === 'Specialized' ? '专业选修' : '普通选修'}</Text>
+          <Text style={styles.secondaryText}>{course.location}</Text>
         </View>
         <Text style={styles.primaryTime}>{course.start} — {course.end}</Text>
       </View>
 
-      <View style={styles.infoCard}>
-        <View style={styles.infoTopline}>
-          <Text style={styles.infoLabel}>上课地点</Text>
-          <View style={[styles.certaintyPill, confirmed ? styles.confirmedPill : styles.pendingPill]}>
-            <Text style={[styles.certaintyText, confirmed ? styles.confirmedText : styles.pendingText]}>{confirmed ? '已确认' : '待确认'}</Text>
-          </View>
-        </View>
-        <Text style={styles.infoValue}>{course.location}</Text>
-        <Text style={styles.infoHint}>{confirmed ? `地点来源：${course.locationSource}` : `等待 ${course.locationSource} 的当届教室安排`}</Text>
-      </View>
-
-      {course.section && <View style={styles.detailLine}><Text style={styles.detailLabel}>班级</Text><Text style={styles.detailValue}>{course.section}</Text></View>}
-      {course.note && <View style={styles.note}><Text style={styles.noteText}>{course.note}</Text></View>}
+      {course.locationStatus === 'pending' && <Text style={styles.pendingInline}>地点待确认</Text>}
 
       {agenda.length > 0 && <View style={styles.relatedSection}>
-        <Text style={styles.relatedHeading}>课程事项</Text>
+        <Text style={styles.relatedHeading}>更多事项</Text>
         {agenda.map((item, index) => {
           const date = agendaDateParts(item);
+          const location = locationForTime(item.location, date.time);
           return <View key={item.id} style={[styles.relatedItem, index < agenda.length - 1 && styles.relatedBorder]}>
-            <View style={styles.relatedTopline}>
-              <Text style={styles.relatedType}>{agendaTypeLabel(item.type)}</Text>
-              <Text style={styles.relatedCertainty}>{agendaCertaintyLabel(item.certainty)}</Text>
+            <View style={styles.relatedTitleRow}>
+              <Text style={styles.relatedTitle}>{item.title}</Text>
+              {showCertainty(item) && <Text style={styles.relatedCertainty}>{agendaCertaintyLabel(item.certainty)}</Text>}
             </View>
-            <Text style={styles.relatedTitle}>{item.title}</Text>
-            <Text style={styles.relatedMeta}>{date.date} · {date.time}</Text>
-            {item.detail && <Text style={styles.relatedDetail}>{item.detail}</Text>}
+            <Text style={styles.relatedMeta}>{date.date} · {date.time}{location ? ` · ${location}` : ''}</Text>
           </View>;
         })}
       </View>}
-      <View style={styles.sourceLine}><Text style={styles.sourceLabel}>数据来源</Text><Text style={styles.sourceValue}>{source}</Text></View>
+      <Disclosure>
+        {course.note && <Text style={styles.explanation}>{course.note}</Text>}
+        <View style={styles.sourceLine}><Text style={styles.sourceLabel}>地点依据</Text><Text style={styles.sourceValue}>{course.locationSource}</Text></View>
+      </Disclosure>
     </>
   );
 }
 
 function AgendaDetails({ item }: { item: AgendaViewItem }) {
   const date = agendaDateParts(item);
+  const location = locationForTime(item.location, date.time);
   return (
     <>
-      <Text style={styles.overline}>{agendaTypeLabel(item.type)}</Text>
       <View style={styles.agendaHeaderRow}>
-        {item.courseCode && <Text style={styles.code}>{item.courseCode}</Text>}
-        <View style={[styles.certaintyPill, item.certainty === 'confirmed' ? styles.confirmedPill : styles.pendingPill]}>
-          <Text style={[styles.certaintyText, item.certainty === 'confirmed' ? styles.confirmedText : styles.pendingText]}>{agendaCertaintyLabel(item.certainty)}</Text>
-        </View>
+        <Text style={styles.overline}>{item.courseCode ?? agendaTypeLabel(item.type)}</Text>
+        {showCertainty(item) && <View style={[styles.certaintyPill, styles.pendingPill]}>
+          <Text style={[styles.certaintyText, styles.pendingText]}>{agendaCertaintyLabel(item.certainty)}</Text>
+        </View>}
       </View>
       <Text style={styles.agendaTitle}>{item.title}</Text>
 
       <View style={styles.primaryRow}>
-        <View>
-          <Text style={styles.primaryLabel}>{date.date}</Text>
-          <Text style={styles.secondaryText}>{agendaTypeLabel(item.type)}</Text>
-        </View>
+        <Text style={styles.primaryLabel}>{date.date}</Text>
         <Text style={styles.primaryTime}>{date.time}</Text>
       </View>
 
-      {item.location && <View style={styles.infoCard}>
+      {location && <View style={styles.infoCard}>
         <Text style={styles.infoLabel}>地点</Text>
-        <Text style={styles.infoValue}>{item.location}</Text>
+        <Text style={styles.infoValue}>{location}</Text>
       </View>}
-      {item.detail && <View style={styles.note}><Text style={styles.noteText}>{item.detail}</Text></View>}
-      <View style={styles.sourceLine}><Text style={styles.sourceLabel}>数据来源</Text><Text style={styles.sourceValue}>{item.sourceLabel}</Text></View>
+      <Disclosure>
+        {item.detail && <Text style={styles.explanation}>{item.detail}</Text>}
+        <View style={styles.sourceLine}><Text style={styles.sourceLabel}>数据来源</Text><Text style={styles.sourceValue}>{item.sourceLabel}</Text></View>
+      </Disclosure>
     </>
+  );
+}
+
+function Disclosure({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.disclosure}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={open ? '收起说明' : '展开说明'}
+        hitSlop={8}
+        style={styles.disclosureButton}
+        onPress={() => setOpen((value) => !value)}>
+        <Text style={styles.disclosureLabel}>说明</Text>
+        <Text style={styles.disclosureIcon}>{open ? '−' : '+'}</Text>
+      </Pressable>
+      {open && <View style={styles.disclosureBody}>{children}</View>}
+    </View>
   );
 }
 
@@ -173,8 +191,8 @@ export function DetailSheet({ selection, visible, onClose }: Props) {
           </View>
           <ScrollView showsVerticalScrollIndicator={false} bounces={false} contentContainerStyle={styles.content}>
             {shownSelection.kind === 'course'
-              ? <CourseDetails course={shownSelection.course} source={shownSelection.source} agenda={shownSelection.agenda} />
-              : <AgendaDetails item={shownSelection.item} />}
+              ? <CourseDetails key={shownSelection.course.code} course={shownSelection.course} agenda={shownSelection.agenda} />
+              : <AgendaDetails key={shownSelection.item.id} item={shownSelection.item} />}
           </ScrollView>
         </Animated.View>
       </View>
@@ -193,41 +211,37 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 24, paddingTop: 4, paddingBottom: 34 },
   overline: { color: palette.muted, fontSize: 12, lineHeight: 17, fontFamily: typography.medium, letterSpacing: 1.2 },
   code: { marginTop: 6, color: palette.cyanDeep, fontSize: 17, lineHeight: 23, fontFamily: typography.medium, letterSpacing: 0.6 },
-  title: { marginTop: 20, color: palette.ink, fontSize: 25, lineHeight: 33, fontFamily: typography.medium, letterSpacing: -0.35 },
+  title: { marginTop: 7, color: palette.ink, fontSize: 25, lineHeight: 33, fontFamily: typography.medium, letterSpacing: -0.35 },
   agendaTitle: { marginTop: 18, color: palette.ink, fontSize: 24, lineHeight: 33, fontFamily: typography.medium, letterSpacing: -0.2 },
-  zh: { marginTop: 6, color: palette.muted, fontSize: 15, lineHeight: 22, fontFamily: typography.regular },
+  sectionLabel: { alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, color: palette.cyanDeep, backgroundColor: '#DDF5F7', fontSize: 11, lineHeight: 15, fontFamily: typography.medium },
   agendaHeaderRow: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   primaryRow: { marginTop: 25, paddingVertical: 18, gap: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.line },
   primaryLabel: { color: palette.ink, fontSize: 20, lineHeight: 27, fontFamily: typography.medium },
   primaryTime: { flexShrink: 1, color: palette.ink, fontSize: 18, lineHeight: 25, textAlign: 'right', fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
   secondaryText: { marginTop: 4, color: palette.muted, fontSize: 12, lineHeight: 17, fontFamily: typography.regular },
   infoCard: { marginTop: 18, padding: 17, borderRadius: 20, borderWidth: 1, borderColor: palette.line, backgroundColor: '#ECFAFB' },
-  infoTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   infoLabel: { color: palette.muted, fontSize: 12, lineHeight: 17, fontFamily: typography.medium, letterSpacing: 0.4 },
   infoValue: { marginTop: 7, color: palette.ink, fontSize: 17, lineHeight: 24, fontFamily: typography.medium },
-  infoHint: { marginTop: 5, color: '#6F9098', fontSize: 12, lineHeight: 18, fontFamily: typography.regular },
+  pendingInline: { marginTop: 10, color: palette.warning, fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
   certaintyPill: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 14 },
-  confirmedPill: { backgroundColor: '#DDF5EE' },
   pendingPill: { backgroundColor: '#FFF0D8' },
   certaintyText: { fontSize: 11, lineHeight: 15, fontFamily: typography.medium },
-  confirmedText: { color: '#277D69' },
   pendingText: { color: palette.warning },
-  detailLine: { marginTop: 15, paddingHorizontal: 3, flexDirection: 'row', justifyContent: 'space-between' },
-  detailLabel: { color: palette.muted, fontSize: 13, lineHeight: 19, fontFamily: typography.regular },
-  detailValue: { color: palette.ink, fontSize: 13, lineHeight: 19, fontFamily: typography.medium },
-  note: { marginTop: 16, padding: 16, borderRadius: 17, backgroundColor: '#F1F7F6' },
-  noteText: { color: palette.inkSoft, fontSize: 14, lineHeight: 22, fontFamily: typography.regular },
   relatedSection: { marginTop: 20, paddingHorizontal: 16, borderWidth: 1, borderColor: palette.line, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.72)' },
   relatedHeading: { paddingTop: 15, paddingBottom: 5, color: palette.ink, fontSize: 15, lineHeight: 21, fontFamily: typography.medium },
   relatedItem: { paddingVertical: 13 },
   relatedBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.line },
-  relatedTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  relatedType: { color: palette.cyanDeep, fontSize: 11, lineHeight: 15, fontFamily: typography.medium },
+  relatedTitleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   relatedCertainty: { color: palette.muted, fontSize: 11, lineHeight: 15, fontFamily: typography.regular },
-  relatedTitle: { marginTop: 4, color: palette.ink, fontSize: 14, lineHeight: 20, fontFamily: typography.medium },
+  relatedTitle: { flex: 1, color: palette.ink, fontSize: 14, lineHeight: 20, fontFamily: typography.medium },
   relatedMeta: { marginTop: 4, color: palette.muted, fontSize: 12, lineHeight: 18, fontFamily: typography.regular, fontVariant: ['tabular-nums'] },
-  relatedDetail: { marginTop: 6, color: palette.inkSoft, fontSize: 13, lineHeight: 20, fontFamily: typography.regular },
-  sourceLine: { marginTop: 20, paddingTop: 17, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, borderTopWidth: StyleSheet.hairlineWidth, borderColor: palette.line },
+  disclosure: { marginTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderColor: palette.line },
+  disclosureButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  disclosureLabel: { color: palette.muted, fontSize: 13, lineHeight: 19, fontFamily: typography.medium },
+  disclosureIcon: { color: palette.muted, fontSize: 20, lineHeight: 24, fontFamily: typography.regular },
+  disclosureBody: { paddingBottom: 4 },
+  explanation: { padding: 14, borderRadius: 15, color: palette.inkSoft, backgroundColor: '#F1F7F6', fontSize: 13, lineHeight: 20, fontFamily: typography.regular },
+  sourceLine: { marginTop: 12, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 },
   sourceLabel: { color: palette.muted, fontSize: 12, lineHeight: 17, fontFamily: typography.regular },
   sourceValue: { flex: 1, color: palette.inkSoft, fontSize: 12, lineHeight: 17, textAlign: 'right', fontFamily: typography.regular },
 });

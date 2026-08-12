@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
@@ -14,8 +14,6 @@ import { CourseSession, getNextClass } from '@/core/schedule';
 import { useCalendar } from '@/hooks/use-calendar';
 import { useNow } from '@/hooks/use-now';
 import { useSchedule } from '@/hooks/use-schedule';
-
-const DAY_NUMBERS: Record<number, string> = { 0: 'SUN', 1: 'MON', 2: 'TUE', 3: 'WED', 4: 'THU', 5: 'FRI', 6: 'SAT' };
 
 function calendarUpdateLabel(updatedAt: string) {
   const updated = new Date(updatedAt);
@@ -34,9 +32,15 @@ function todayLabel(now: Date) {
 function compactAgendaDate(item: AgendaViewItem) {
   if (!item.start) return '待定';
   const date = new Date(item.allDay ? `${item.start}T00:00:00+08:00` : item.start);
-  return new Intl.DateTimeFormat('zh-CN', {
+  const format = (value: Date) => new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Singapore', month: 'numeric', day: 'numeric',
-  }).format(date).replace('/', '.');
+  }).format(value).replace('/', '.');
+  const start = format(date);
+  if (!item.allDay || !item.end || item.end === item.start) return start;
+  const end = format(new Date(`${item.end}T00:00:00+08:00`));
+  const [startMonth] = start.split('.');
+  const [endMonth, endDay] = end.split('.');
+  return startMonth === endMonth ? `${start}–${endDay}` : `${start}–${end}`;
 }
 
 function agendaAccent(item: AgendaViewItem) {
@@ -46,20 +50,46 @@ function agendaAccent(item: AgendaViewItem) {
   return palette.notice;
 }
 
+function titleIncludesAgendaType(item: AgendaViewItem) {
+  if (item.type === 'quiz') return /(\bquiz\b|\u6d4b\u9a8c)/i.test(item.title);
+  if (item.type === 'ca') return /\bca(?:\s*\d+)?\b/i.test(item.title);
+  if (item.type === 'deadline') return /(\u622a\u6b62|\u622a\u6b62\u65e5\u671f|\bdue\b)/i.test(item.title);
+  if (item.type === 'notice') return /(\u901a\u77e5|\bnotice\b)/i.test(item.title);
+  return false;
+}
+
+function titleIncludesCertainty(item: AgendaViewItem) {
+  if (item.certainty === 'pending') return /(\u5f85\u516c\u5e03|\u5c1a\u672a\u516c\u5e03|\u5f85\u5b9a|\u5f85\u786e\u8ba4)/.test(item.title);
+  if (item.certainty === 'inferred') return /(\u9884\u8ba1|\u7ea6|\u63a8\u5b9a)/.test(item.title);
+  return true;
+}
+
 function displayLocation(location: string, pending: boolean) {
   if (!pending || location.includes('待')) return location;
   return `${location} · 待确认`;
+}
+
+function agendaLocation(item: AgendaViewItem, timeLabel: string) {
+  if (!item.location) return null;
+  if (timeLabel === '课堂内') return item.location.replace(/^课堂内\s*·\s*/, '');
+  return item.location;
 }
 
 export default function HomeScreen() {
   const { schedule, refreshing: scheduleRefreshing, error: scheduleError, refresh: refreshSchedule } = useSchedule();
   const { calendar, source: calendarSource, state: calendarState, activate } = useCalendar();
   const [selection, setSelection] = useState<DetailSelection | null>(null);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   const now = useNow();
   const nextClass = useMemo(() => getNextClass(schedule, now), [now, schedule]);
   const teachingFinished = Boolean(schedule.teachingEnd && singaporeDateKey(now) > schedule.teachingEnd);
   const allAgenda = useMemo(() => upcomingAgendaItems(schedule, calendar, now, 256), [calendar, now, schedule]);
   const agenda = useMemo(() => allAgenda.slice(0, 6), [allAgenda]);
+  const visibleAgendaIds = useMemo(() => new Set(agenda.map((item) => item.id)), [agenda]);
+  const otherCourses = useMemo(
+    () => nextClass ? schedule.courses.filter((course) => course.code !== nextClass.course.code) : schedule.courses,
+    [nextClass, schedule.courses],
+  );
   const reducedMotion = useReducedMotion();
   const syncOpacity = useSharedValue(1);
   const syncing = scheduleRefreshing || calendarState === 'refreshing';
@@ -79,25 +109,44 @@ export default function HomeScreen() {
       : calendarSource === 'cache'
         ? '离线缓存'
         : calendar.updatedAt ? `更新于 ${calendarUpdateLabel(calendar.updatedAt)}` : '刷新';
-  const refreshAll = useCallback(() => {
+  const refreshAll = useCallback(async () => {
     if (syncing) return;
-    void Promise.allSettled([refreshSchedule(), activate()]);
+    await Promise.allSettled([refreshSchedule(), activate()]);
   }, [activate, refreshSchedule, syncing]);
+  const handlePullRefresh = useCallback(async () => {
+    if (syncing || pullRefreshing) return;
+    setPullRefreshing(true);
+    try {
+      await refreshAll();
+    } finally {
+      setPullRefreshing(false);
+    }
+  }, [pullRefreshing, refreshAll, syncing]);
   const selectCourse = useCallback((course: CourseSession) => {
     setSelection({
       kind: 'course',
       course,
-      source: schedule.source,
-      agenda: allAgenda.filter((item) => item.courseCode === course.code).slice(0, 8),
+      agenda: allAgenda.filter((item) => item.courseCode === course.code && !visibleAgendaIds.has(item.id)).slice(0, 8),
     });
-  }, [allAgenda, schedule.source]);
+  }, [allAgenda, visibleAgendaIds]);
 
   return (
     <LinearGradient colors={['#E7FAFD', '#F7FDFC', '#F8F2E3']} locations={[0, 0.62, 1]} style={styles.background}>
       <View pointerEvents="none" style={styles.glow} />
       <View pointerEvents="none" style={styles.shore} />
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+          refreshControl={(
+            <RefreshControl
+              refreshing={pullRefreshing}
+              onRefresh={handlePullRefresh}
+              colors={[palette.cyanDeep, palette.cyan, palette.aqua]}
+              progressBackgroundColor={palette.foam}
+              tintColor={palette.cyanDeep}
+            />
+          )}>
           <View style={styles.topbar}>
             <View style={styles.brandRow}>
               <View style={styles.brandMark}><Text style={styles.brandMarkText}>知</Text></View>
@@ -106,16 +155,15 @@ export default function HomeScreen() {
                 <Text style={styles.brandCaption}>NTU COURSE ATLAS</Text>
               </View>
             </View>
-            <PressableScale accessibilityRole="button" accessibilityLabel="刷新课程、测验和校历" disabled={syncing} hitSlop={8} onPress={refreshAll} style={styles.syncPill}>
+            <PressableScale accessibilityRole="button" accessibilityLabel="刷新课程、测验和校历" disabled={syncing} hitSlop={8} onPress={() => void refreshAll()} style={styles.syncPill}>
               <Animated.View style={[styles.syncDot, (scheduleError || calendarState === 'error' || calendarSource === 'cache') && styles.syncDotOffline, syncDotStyle]} />
               <Text numberOfLines={1} style={styles.syncPillText}>{calendarLabel}</Text>
             </PressableScale>
           </View>
 
           <View style={styles.heading}>
-            <Text style={styles.overline}>{todayLabel(now)}{schedule.academicYear ? ` · ${schedule.academicYear}` : ''}</Text>
+            <Text style={styles.overline}>{todayLabel(now)}</Text>
             <Text style={styles.title}>今日</Text>
-            <Text style={styles.subtitle}>新加坡时间 · 课程、测验与校历</Text>
           </View>
 
           {nextClass ? (
@@ -150,7 +198,6 @@ export default function HomeScreen() {
 
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>近期事项</Text>
-            <Text style={styles.sectionHint}>测验 · 通知 · 校历</Text>
           </View>
           <View style={styles.agendaList}>
             {agenda.length === 0
@@ -158,6 +205,9 @@ export default function HomeScreen() {
               : agenda.map((item, index) => {
                 const date = agendaDateParts(item);
                 const accent = agendaAccent(item);
+                const showType = !titleIncludesAgendaType(item);
+                const showCertainty = item.certainty !== 'confirmed' && !titleIncludesCertainty(item);
+                const location = agendaLocation(item, date.time);
                 return (
                   <PressableScale
                     key={item.id}
@@ -169,12 +219,12 @@ export default function HomeScreen() {
                       <Text style={[styles.agendaDateText, { color: accent }]}>{compactAgendaDate(item)}</Text>
                     </View>
                     <View style={styles.agendaCopy}>
-                      <View style={styles.agendaTags}>
-                        <Text style={[styles.agendaType, { color: accent }]}>{agendaTypeLabel(item.type)}</Text>
-                        <Text style={styles.agendaCertainty}>{agendaCertaintyLabel(item.certainty)}</Text>
-                      </View>
+                      {(showType || showCertainty) && <View style={styles.agendaTags}>
+                        {showType && <Text style={[styles.agendaType, { color: accent }]}>{agendaTypeLabel(item.type)}</Text>}
+                        {showCertainty && <Text style={styles.agendaCertainty}>{agendaCertaintyLabel(item.certainty)}</Text>}
+                      </View>}
                       <Text numberOfLines={2} style={styles.agendaTitle}>{item.title}</Text>
-                      <Text numberOfLines={1} style={styles.agendaMeta}>{item.courseCode ? `${item.courseCode} · ` : ''}{date.time}{item.location ? ` · ${item.location}` : ''}</Text>
+                      <Text numberOfLines={1} style={styles.agendaMeta}>{item.courseCode ? `${item.courseCode} · ` : ''}{date.time}{location ? ` · ${location}` : ''}</Text>
                     </View>
                     <Text style={styles.arrow}>›</Text>
                   </PressableScale>
@@ -182,10 +232,10 @@ export default function HomeScreen() {
               })}
           </View>
 
-          {schedule.courses.length > 0 && <>
-            <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>本周课程</Text><Text style={styles.sectionHint}>时间与地点</Text></View>
+          {otherCourses.length > 0 && <>
+            <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>{nextClass ? '其他课程' : '本周课程'}</Text></View>
             <View style={styles.courseList}>
-              {schedule.courses.map((course, index) => (
+              {otherCourses.map((course, index) => (
                 <PressableScale
                   key={`${course.code}-${course.weekday}-${course.start}`}
                   accessibilityRole="button"
@@ -193,16 +243,15 @@ export default function HomeScreen() {
                   style={styles.courseCard}
                   onPress={() => selectCourse(course)}>
                   <View style={styles.dayColumn}>
-                    <Text style={styles.dayEnglish}>{DAY_NUMBERS[course.weekday]}</Text>
-                    <Text style={styles.dayChinese}>{course.dayLabel.slice(1)}</Text>
-                    {index < schedule.courses.length - 1 && <View style={styles.dayLine} />}
+                    <Text style={styles.dayEnglish}>{course.dayLabel}</Text>
+                    {index < otherCourses.length - 1 && <View style={styles.dayLine} />}
                   </View>
-                  <View style={[styles.courseMain, index === schedule.courses.length - 1 && styles.courseMainLast]}>
+                  <View style={[styles.courseMain, index === otherCourses.length - 1 && styles.courseMainLast]}>
                     <View style={styles.courseTitleRow}>
                       <Text style={styles.courseCode}>{course.code}</Text>
                       {course.section && <Text style={styles.group}>{course.section}</Text>}
                     </View>
-                    <Text numberOfLines={2} style={styles.courseName}>{course.name}</Text>
+                    <Text numberOfLines={1} style={styles.courseName}>{course.name}</Text>
                     <Text style={styles.courseTime}>{course.start} — {course.end}</Text>
                     <View style={styles.locationRow}>
                       <View style={[styles.locationDot, course.locationStatus === 'confirmed' && styles.locationDotConfirmed]} />
@@ -240,7 +289,6 @@ const styles = StyleSheet.create({
   heading: { marginTop: 24, marginBottom: 21 },
   overline: { color: '#4F8997', fontSize: 12, lineHeight: 17, fontFamily: typography.medium, letterSpacing: 0.45 },
   title: { marginTop: 5, color: palette.ink, fontSize: 38, lineHeight: 48, fontFamily: typography.display },
-  subtitle: { marginTop: 1, color: palette.muted, fontSize: 14, lineHeight: 21, fontFamily: typography.regular },
   nextCard: { borderRadius: 25, shadowColor: '#0788A9', shadowOpacity: 0.18, shadowRadius: 22, shadowOffset: { width: 0, height: 12 }, elevation: 10 },
   nextGradient: { minHeight: 182, padding: 21, borderRadius: 25, overflow: 'hidden' },
   nextTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -275,8 +323,7 @@ const styles = StyleSheet.create({
   courseList: { paddingHorizontal: 14, borderWidth: 1, borderColor: palette.line, borderRadius: 24, backgroundColor: palette.glass, shadowColor: '#2B7E91', shadowOpacity: 0.06, shadowRadius: 26, shadowOffset: { width: 0, height: 13 } },
   courseCard: { minHeight: 118, flexDirection: 'row', alignItems: 'center' },
   dayColumn: { width: 46, alignSelf: 'stretch', alignItems: 'center', paddingTop: 24 },
-  dayEnglish: { color: '#789CA4', fontSize: 10, lineHeight: 14, fontFamily: typography.medium, letterSpacing: 0.8 },
-  dayChinese: { marginTop: 4, color: palette.cyanDeep, fontSize: 18, lineHeight: 24, fontFamily: typography.medium },
+  dayEnglish: { color: palette.cyanDeep, fontSize: 13, lineHeight: 18, fontFamily: typography.medium },
   dayLine: { width: 1, flex: 1, marginTop: 8, backgroundColor: 'rgba(34, 151, 177, 0.13)' },
   courseMain: { flex: 1, minWidth: 0, paddingVertical: 17, paddingLeft: 7, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.line },
   courseMainLast: { borderBottomWidth: 0 },

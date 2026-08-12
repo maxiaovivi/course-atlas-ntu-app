@@ -16,7 +16,7 @@ const TYPE_LABELS: Record<AgendaItemType, string> = {
 
 const CERTAINTY_LABELS: Record<AgendaCertainty, string> = {
   confirmed: '已确认',
-  inferred: '推定',
+  inferred: '预计',
   pending: '待公布',
 };
 
@@ -129,7 +129,7 @@ export function agendaDateParts(item: Pick<AgendaViewItem, 'type' | 'start' | 'e
       : null;
     const dateRange = endDate && endDate !== date ? `${date} — ${endDate}` : date;
     if (item.type === 'quiz' || item.type === 'ca') {
-      return { date, time: item.location?.includes('课堂内') ? '课堂内 · 具体时间待公布' : '具体时间待公布' };
+      return { date, time: item.location?.includes('课堂内') ? '课堂内' : '时间待公布' };
     }
     if (item.type === 'deadline') return { date: dateRange, time: '具体截止时刻待公布' };
     return { date: dateRange, time: item.certainty === 'pending' ? '日期待确认' : '全天' };
