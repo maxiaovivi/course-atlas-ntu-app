@@ -247,6 +247,80 @@ test("schedule update rejects missing credentials and invalid data", async () =>
   assert.equal(bucket.objects.size, 0);
 });
 
+test("study cards are owner-updated, publicly readable, and strictly validated", async () => {
+  const bucket = new MemoryBucket();
+  const fixture = JSON.parse(await readFile(new URL("../data/study-cards.example.json", import.meta.url), "utf8"));
+  const env = { FILES: bucket, UPLOAD_OWNER_EMAIL: "owner@example.invalid" };
+
+  const empty = await worker.fetch(new Request("https://example.test/api/study-cards"), env);
+  assert.equal(empty.status, 200);
+  assert.deepEqual(await empty.json(), { version: 1, updatedAt: null, cards: [] });
+
+  const unauthorized = await worker.fetch(new Request("https://example.test/api/study-cards", {
+    method: "PUT",
+    headers: { "content-type": "application/json", origin: "https://example.test" },
+    body: JSON.stringify(fixture),
+  }), env);
+  assert.equal(unauthorized.status, 401);
+
+  const update = await worker.fetch(new Request("https://example.test/api/study-cards", {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://example.test",
+      "oai-authenticated-user-email": "owner@example.invalid",
+    },
+    body: JSON.stringify(fixture),
+  }), env);
+  assert.equal(update.status, 200);
+  assert.equal((await update.json()).cards, 2);
+
+  const response = await worker.fetch(new Request("https://example.test/api/study-cards"), env);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("cache-control"), /max-age=60/);
+  const payload = await response.json();
+  assert.equal(payload.cards.length, 2);
+  assert.equal(payload.cards[0].latex[0], "x_{k+1}=A x_k+B u_k");
+  assert.notEqual(payload.updatedAt, fixture.updatedAt);
+
+  const nonStringTimestamp = structuredClone(fixture);
+  nonStringTimestamp.updatedAt = 0;
+  const timestampRejected = await worker.fetch(new Request("https://example.test/api/study-cards", {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://example.test",
+      "oai-authenticated-user-email": "owner@example.invalid",
+    },
+    body: JSON.stringify(nonStringTimestamp),
+  }), env);
+  assert.equal(timestampRejected.status, 400);
+
+  const unsafe = structuredClone(fixture);
+  unsafe.cards[0].latex = ["\\href{https://example.invalid}{x}"];
+  const rejected = await worker.fetch(new Request("https://example.test/api/study-cards", {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://example.test",
+      "oai-authenticated-user-email": "owner@example.invalid",
+    },
+    body: JSON.stringify(unsafe),
+  }), env);
+  assert.equal(rejected.status, 400);
+
+  const crossOrigin = await worker.fetch(new Request("https://example.test/api/study-cards", {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://evil.example.invalid",
+      "oai-authenticated-user-email": "owner@example.invalid",
+    },
+    body: JSON.stringify(fixture),
+  }), env);
+  assert.equal(crossOrigin.status, 403);
+});
+
 const TEST_FEED_ID = "a".repeat(32);
 const TEST_FEED_URL = `https://ntulearn.ntu.edu.sg/webapps/calendar/calendarFeed/${TEST_FEED_ID}/learn.ics`;
 

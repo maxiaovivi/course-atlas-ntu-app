@@ -13,3 +13,4 @@ storageState*.json
 browser-profile/
 playwright-profile/
 data/schedule.json
+data/study-cards.json

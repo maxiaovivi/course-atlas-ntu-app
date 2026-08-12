@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
 import { DetailSelection, DetailSheet } from '@/components/detail-sheet';
+import { MemoryCardCarousel, MemorySheet } from '@/components/memory-cards';
 import { PressableScale } from '@/components/pressable-scale';
 import { palette } from '@/constants/palette';
 import { typography } from '@/constants/typography';
@@ -12,10 +13,12 @@ import { agendaDateParts, agendaTypeLabel, AgendaViewItem, upcomingAgendaItems }
 import { singaporeDateKey } from '@/core/calendar';
 import { materialsForCourse } from '@/core/library';
 import { AcademicCalendarItem, CourseSession, getNextClass } from '@/core/schedule';
+import { StudyCard } from '@/core/study-cards';
 import { useCalendar } from '@/hooks/use-calendar';
 import { useLibrary } from '@/hooks/use-library';
 import { useNow } from '@/hooks/use-now';
 import { useSchedule } from '@/hooks/use-schedule';
+import { useStudyCards } from '@/hooks/use-study-cards';
 
 function todayLabel(now: Date) {
   return new Intl.DateTimeFormat('zh-CN', {
@@ -82,7 +85,9 @@ export default function HomeScreen() {
   const { schedule, refreshing: scheduleRefreshing, error: scheduleError, refresh: refreshSchedule } = useSchedule();
   const { calendar, source: calendarSource, state: calendarState, activate } = useCalendar();
   const { library, source: librarySource, refreshing: libraryRefreshing, error: libraryError, refresh: refreshLibrary } = useLibrary();
+  const { payload: studyCards, source: studyCardSource, refreshing: studyCardRefreshing, error: studyCardError, refresh: refreshStudyCards } = useStudyCards();
   const [selection, setSelection] = useState<DetailSelection | null>(null);
+  const [memoryCard, setMemoryCard] = useState<StudyCard | null>(null);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const now = useNow();
   const nextClass = useMemo(() => getNextClass(schedule, now), [now, schedule]);
@@ -101,7 +106,7 @@ export default function HomeScreen() {
   );
   const reducedMotion = useReducedMotion();
   const syncOpacity = useSharedValue(1);
-  const syncing = scheduleRefreshing || calendarState === 'refreshing' || libraryRefreshing;
+  const syncing = scheduleRefreshing || calendarState === 'refreshing' || libraryRefreshing || studyCardRefreshing;
 
   useEffect(() => {
     cancelAnimation(syncOpacity);
@@ -111,13 +116,13 @@ export default function HomeScreen() {
   }, [reducedMotion, syncOpacity, syncing]);
   const syncDotStyle = useAnimatedStyle(() => ({ opacity: syncOpacity.value }));
 
-  const refreshIssue = scheduleError || calendarState === 'error' || libraryError
+  const refreshIssue = scheduleError || calendarState === 'error' || libraryError || studyCardError
     ? '失败'
-    : calendarSource === 'cache' || librarySource === 'cache' ? '离线' : null;
+    : calendarSource === 'cache' || librarySource === 'cache' || studyCardSource === 'cache' ? '离线' : null;
   const refreshAll = useCallback(async () => {
     if (syncing) return;
-    await Promise.allSettled([refreshSchedule(), activate(), refreshLibrary()]);
-  }, [activate, refreshLibrary, refreshSchedule, syncing]);
+    await Promise.allSettled([refreshSchedule(), activate(), refreshLibrary(), refreshStudyCards()]);
+  }, [activate, refreshLibrary, refreshSchedule, refreshStudyCards, syncing]);
   const handlePullRefresh = useCallback(async () => {
     if (syncing || pullRefreshing) return;
     setPullRefreshing(true);
@@ -158,7 +163,7 @@ export default function HomeScreen() {
             <Text style={styles.brand}>知嶼</Text>
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel="刷新课程、测验、校历和资料"
+              accessibilityLabel="刷新课程、测验、校历、资料和记忆卡"
               disabled={syncing}
               hitSlop={8}
               onPress={() => void refreshAll()}
@@ -197,6 +202,8 @@ export default function HomeScreen() {
               <Text style={styles.emptyTitle}>{scheduleRefreshing ? '正在同步' : teachingFinished ? '课程已结束' : '暂无课表'}</Text>
             </PressableScale>
           )}
+
+          <MemoryCardCarousel cards={studyCards.cards} onOpen={setMemoryCard} />
 
           {nextBreak && <PressableScale
             accessibilityRole="button"
@@ -264,6 +271,7 @@ export default function HomeScreen() {
         </ScrollView>
       </SafeAreaView>
       <DetailSheet selection={resolvedSelection} visible={Boolean(selection)} onClose={() => setSelection(null)} />
+      <MemorySheet cards={studyCards.cards} initialCard={memoryCard} visible={Boolean(memoryCard)} onClose={() => setMemoryCard(null)} />
     </LinearGradient>
   );
 }

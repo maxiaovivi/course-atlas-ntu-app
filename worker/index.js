@@ -1,5 +1,6 @@
 const CATALOG_KEY = "library/catalog-v1.json";
 const SCHEDULE_KEY = "app/schedule-v1.json";
+const STUDY_CARDS_KEY = "app/study-cards-v1.json";
 const CALENDAR_KEY = "app/ntulearn-calendar-v1.json";
 const CALENDAR_STATUS_KEY = "app/ntulearn-calendar-status-v1.json";
 const ALLOWED_COURSES = new Set(["EE6221", "EE6406", "EE6407", "EE6497"]);
@@ -16,6 +17,8 @@ const MAX_ICAL_EVENTS = 2000;
 const MAX_PUBLIC_EVENTS = 512;
 const CALENDAR_SUCCESS_COOLDOWN_MS = 10 * 60 * 1000;
 const CALENDAR_FAILURE_BACKOFF_MS = 60 * 1000;
+const MAX_STUDY_CARDS = 128;
+const MAX_STUDY_CARDS_BYTES = 256 * 1024;
 let calendarRefreshInFlight = null;
 
 export const DEFAULT_SCHEDULE = {
@@ -364,6 +367,86 @@ async function updateSchedule(request, env) {
     academicCalendar: schedule.academicCalendar?.length ?? 0,
     courseBriefs: schedule.courseBriefs?.length ?? 0,
   });
+}
+
+function emptyStudyCards() {
+  return { version: 1, updatedAt: null, cards: [] };
+}
+
+function cleanStudyCardText(value, maxLength) {
+  return typeof value === "string" && value.length > 0 && value.length <= maxLength
+    && value.trim() === value && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function isStudyCards(value, allowEmpty = false) {
+  if (!value || typeof value !== "object" || Object.keys(value).length !== 3
+    || !Object.keys(value).every((key) => ["version", "updatedAt", "cards"].includes(key))
+    || value.version !== 1
+    || (value.updatedAt !== null && (typeof value.updatedAt !== "string" || !Number.isFinite(Date.parse(value.updatedAt))))
+    || !Array.isArray(value.cards) || value.cards.length > MAX_STUDY_CARDS
+    || (!allowEmpty && value.cards.length === 0)) return false;
+  const cardKeys = ["id", "courseCode", "kind", "topic", "prompt", "answer", "latex", "terms", "trap", "signal", "targets", "priority"];
+  const unsafeLatex = /\\(?:def|gdef|edef|xdef|let|futurelet|newcommand|renewcommand|providecommand|html|href|url|includegraphics|class|style|id|data)\b/i;
+  const validList = (items, maxItems, maxLength, allowEmptyList = false) => Array.isArray(items)
+    && items.length <= maxItems && (allowEmptyList || items.length > 0)
+    && items.every((item) => cleanStudyCardText(item, maxLength))
+    && new Set(items).size === items.length;
+  if (!value.cards.every((card) => card && typeof card === "object"
+    && Object.keys(card).length === cardKeys.length && Object.keys(card).every((key) => cardKeys.includes(key))
+    && /^[a-z0-9-]{8,96}$/.test(card.id)
+    && ALLOWED_COURSES.has(card.courseCode)
+    && ["concept", "formula", "procedure", "term"].includes(card.kind)
+    && cleanStudyCardText(card.topic, 60)
+    && cleanStudyCardText(card.prompt, 120)
+    && validList(card.answer, 3, 160)
+    && validList(card.latex, 2, 360, true) && card.latex.every((item) => !unsafeLatex.test(item))
+    && Array.isArray(card.terms) && card.terms.length <= 4
+    && card.terms.every((term) => term && typeof term === "object" && Object.keys(term).length === 2
+      && Object.keys(term).every((key) => ["term", "meaning"].includes(key))
+      && cleanStudyCardText(term.term, 60) && cleanStudyCardText(term.meaning, 120))
+    && (card.trap === null || cleanStudyCardText(card.trap, 160))
+    && cleanStudyCardText(card.signal, 80)
+    && validList(card.targets, 3, 32)
+    && Number.isInteger(card.priority) && card.priority >= 1 && card.priority <= 3)) return false;
+  return new Set(value.cards.map((card) => card.id)).size === value.cards.length;
+}
+
+async function readStudyCards(bucket) {
+  if (!bucket) return null;
+  const object = await bucket.get(STUDY_CARDS_KEY);
+  if (!object) return emptyStudyCards();
+  try {
+    const parsed = JSON.parse(await object.text());
+    return isStudyCards(parsed, true) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function updateStudyCards(request, env) {
+  const bucket = requireBucket(env);
+  if (!bucket) return json({ error: "Study-card storage unavailable" }, 503);
+  if (!isOwner(request, env)) return json({ error: "Owner sign-in is required" }, 401);
+  const origin = request.headers.get("origin");
+  if (origin && origin !== new URL(request.url).origin) return json({ error: "Cross-origin update is not allowed" }, 403);
+  if (request.headers.get("content-type")?.split(";")[0] !== "application/json") return json({ error: "Only application/json is accepted" }, 415);
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > MAX_STUDY_CARDS_BYTES) return json({ error: "Study-card payload is too large" }, 413);
+  let parsed;
+  try {
+    const text = await request.text();
+    if (!text || new TextEncoder().encode(text).length > MAX_STUDY_CARDS_BYTES) return json({ error: "Study-card payload is empty or too large" }, 413);
+    parsed = JSON.parse(text);
+  } catch {
+    return json({ error: "Study-card JSON is invalid" }, 400);
+  }
+  if (!isStudyCards(parsed)) return json({ error: "Study-card schema is invalid" }, 400);
+  const snapshot = { ...parsed, updatedAt: new Date().toISOString() };
+  await bucket.put(STUDY_CARDS_KEY, JSON.stringify(snapshot), {
+    httpMetadata: { contentType: "application/json", cacheControl: "public, max-age=60" },
+    customMetadata: { purpose: "course-atlas-study-cards", version: String(snapshot.version) },
+  });
+  return json({ ok: true, updatedAt: snapshot.updatedAt, cards: snapshot.cards.length, courses: new Set(snapshot.cards.map((card) => card.courseCode)).size });
 }
 
 function emptyCalendar() {
@@ -947,6 +1030,11 @@ export default {
       const schedule = await readSchedule(bucket, env);
       return schedule ? publicJson(schedule) : json({ error: "Schedule data is unavailable or invalid" }, 503);
     }
+    if (url.pathname === "/api/study-cards" && request.method === "GET") {
+      const cards = await readStudyCards(requireBucket(env));
+      return cards ? publicJson(cards) : json({ error: "Study-card data is unavailable or invalid" }, 503);
+    }
+    if (url.pathname === "/api/study-cards" && request.method === "PUT") return updateStudyCards(request, env);
     if (url.pathname === "/api/calendar" && request.method === "GET") {
       const bucket = requireBucket(env);
       if (!bucket) return json({ error: "Calendar storage unavailable" }, 503);

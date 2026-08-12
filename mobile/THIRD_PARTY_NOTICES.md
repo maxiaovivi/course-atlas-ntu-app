@@ -11,3 +11,11 @@ distributed under the SIL Open Font License 1.1.
 
 The font is used only for short display titles. Course names, times,
 locations, assessments, and notices use the device system sans-serif font.
+
+## KaTeX
+
+Mathematical notation in study cards is rendered with **KaTeX**, copyright
+Khan Academy and other contributors, under the MIT License.
+
+- Project: <https://katex.org/>
+- License: <https://github.com/KaTeX/KaTeX/blob/main/LICENSE>

@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "updatedAt": "2030-08-01T00:00:00+08:00",
+  "cards": [
+    {
+      "id": "ex1001-fictional-state-update",
+      "courseCode": "EE6221",
+      "kind": "formula",
+      "topic": "Fictional state model",
+      "prompt": "How does the fictional state advance?",
+      "answer": [
+        "Apply the fictional transition before the observation step.",
+        "Keep the state and observation dimensions distinct."
+      ],
+      "latex": [
+        "x_{k+1}=A x_k+B u_k"
+      ],
+      "terms": [
+        {
+          "term": "state",
+          "meaning": "A fictional hidden quantity in this test fixture."
+        }
+      ],
+      "trap": "This is fixture content, not an NTU course fact.",
+      "signal": "Fictional final 2/3",
+      "targets": [
+        "Fictional final"
+      ],
+      "priority": 3
+    },
+    {
+      "id": "ex2002-fictional-loss",
+      "courseCode": "EE6406",
+      "kind": "concept",
+      "topic": "Fictional loss",
+      "prompt": "What should a fictional loss compare?",
+      "answer": [
+        "Compare the fictional prediction with its fictional target."
+      ],
+      "latex": [],
+      "terms": [],
+      "trap": null,
+      "signal": "Fictional quiz scope",
+      "targets": [
+        "Fictional quiz"
+      ],
+      "priority": 1
+    }
+  ]
+}
