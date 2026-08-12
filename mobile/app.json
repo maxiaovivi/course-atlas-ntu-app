@@ -2,14 +2,14 @@
   "expo": {
     "name": "知屿课表",
     "slug": "maxiaovivi",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "orientation": "portrait",
     "icon": "./assets/images/ink-tree-icon.png",
     "scheme": "courseatlasntu",
     "userInterfaceStyle": "light",
     "android": {
       "package": "com.maxiaovivi.courseatlasntu",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#F8F8F5",
         "foregroundImage": "./assets/images/ink-tree-icon.png"

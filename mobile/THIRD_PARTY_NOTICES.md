@@ -17,10 +17,18 @@ the MIT License; a copy is included at
 The font is used only for short display titles. Course names, times,
 locations, assessments, and notices use the device system sans-serif font.
 
-## KaTeX
+## RaTeX
 
-Mathematical notation in study cards is rendered with **KaTeX**, copyright
-Khan Academy and other contributors, under the MIT License.
+Mathematical notation in study cards is parsed and drawn natively with
+**RaTeX**, copyright erweixin, under the MIT License. The Android build uses
+the `ratex-react-native` Fabric component and does not use a WebView.
 
-- Project: <https://katex.org/>
-- License: <https://github.com/KaTeX/KaTeX/blob/main/LICENSE>
+- Project: <https://github.com/erweixin/RaTeX>
+- Bundled license: [`licenses/RATEX-MIT.txt`](licenses/RATEX-MIT.txt)
+
+RaTeX bundles unmodified KaTeX mathematical font files. Copyright 2009–2010
+Design Science, Inc. and 2014–2018 Khan Academy. The fonts are distributed
+under the SIL Open Font License 1.1.
+
+- Font notice: [`licenses/RATEX-KATEX-FONTS-NOTICE.txt`](licenses/RATEX-KATEX-FONTS-NOTICE.txt)
+- Full OFL text: [`licenses/OFL-1.1.txt`](licenses/OFL-1.1.txt)

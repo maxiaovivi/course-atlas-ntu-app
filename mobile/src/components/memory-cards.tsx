@@ -7,28 +7,13 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import MathFormula from '@/components/math-formula.dom';
+import { NativeMathFormula } from '@/components/native-math-formula';
 import { PressableScale } from '@/components/pressable-scale';
 import { palette } from '@/constants/palette';
 import { typography } from '@/constants/typography';
 import { StudyCard, studyCardDeck, studyCardsForCourse } from '@/core/study-cards';
 
 const COURSES = ['EE6221', 'EE6406', 'EE6407', 'EE6497'] as const;
-
-function formulaHeight(latex: string, detail = false) {
-  if (/\\begin\{(?:bmatrix|matrix|aligned|cases)\}/.test(latex)) return detail ? 132 : 86;
-  if (latex.length > 150) return detail ? 106 : 74;
-  return detail ? 78 : 58;
-}
-
-function continuousFormula(latex: string[]) {
-  if (latex.length < 2) return latex[0] ?? null;
-  return `\\begin{gathered}${latex.map((item) => `{${item}}`).join('\\\\[0.9em]')}\\end{gathered}`;
-}
-
-function continuousFormulaHeight(latex: string[]) {
-  return latex.reduce((height, item) => height + formulaHeight(item, true), 0) + Math.max(0, latex.length - 1) * 10;
-}
 
 export function MemoryCardCarousel({ cards, onOpen }: { cards: StudyCard[]; onOpen: (card: StudyCard) => void }) {
   const reducedMotion = useReducedMotion();
@@ -78,11 +63,10 @@ export function MemoryCardCarousel({ cards, onOpen }: { cards: StudyCard[]; onOp
             <Text numberOfLines={1} style={styles.previewMeta}>{card.courseCode} · {card.signal}</Text>
           </View>
           <Text numberOfLines={2} style={styles.previewPrompt}>{card.prompt}</Text>
-          {formula && <View pointerEvents="none" style={[styles.previewFormula, { height: formulaHeight(formula) }]}>
-            <MathFormula
+          {formula && <View pointerEvents="none" style={styles.previewFormula}>
+            <NativeMathFormula
               latex={formula}
-              fontSize={formula.length > 120 ? 15 : 17}
-              dom={{ scrollEnabled: false, showsVerticalScrollIndicator: false, showsHorizontalScrollIndicator: false }}
+              fontSize={19}
             />
           </View>}
           <View style={styles.previewBottom}>
@@ -127,7 +111,6 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
   const currentIndex = Math.max(0, deck.findIndex((card) => card.id === selectedId));
   const current = deck[currentIndex] ?? deck[0] ?? null;
   const currentId = current?.id ?? null;
-  const formula = current ? continuousFormula(current.latex) : null;
 
   useEffect(() => {
     if (current && current.id !== selectedId) setSelectedId(current.id);
@@ -232,14 +215,14 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
               </View>
               <Text style={styles.cardPrompt}>{current.prompt}</Text>
 
-              {formula && <View
-                pointerEvents="none"
-                style={[styles.formulaGroup, { height: continuousFormulaHeight(current.latex) }]}>
-                <MathFormula
-                  latex={formula}
-                  fontSize={current.latex.some((item) => item.length > 160) ? 15 : 18}
-                  dom={{ scrollEnabled: false, showsVerticalScrollIndicator: false, showsHorizontalScrollIndicator: false }}
-                />
+              {current.latex.length > 0 && <View pointerEvents="none" style={styles.formulaGroup}>
+                {current.latex.map((latex, index) => (
+                  <NativeMathFormula
+                    key={`${current.id}-formula-${index}`}
+                    latex={latex}
+                    fontSize={22}
+                  />
+                ))}
               </View>}
 
               <View style={styles.answerSection}>
@@ -277,7 +260,7 @@ const styles = StyleSheet.create({
   previewTitle: { color: palette.cyanDeep, fontSize: 22, lineHeight: 29, fontFamily: typography.display },
   previewMeta: { flex: 1, color: palette.muted, fontSize: 10, lineHeight: 15, textAlign: 'right', fontFamily: typography.medium },
   previewPrompt: { marginTop: 9, color: palette.ink, fontSize: 20, lineHeight: 28, fontFamily: typography.medium, letterSpacing: -0.2 },
-  previewFormula: { marginTop: 8, marginHorizontal: -4, overflow: 'hidden' },
+  previewFormula: { marginTop: 10, marginHorizontal: -4 },
   previewBottom: { minHeight: 24, marginTop: 5, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   previewProgress: { color: palette.muted, fontSize: 10, lineHeight: 15, fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
   previewAction: { flexDirection: 'row', alignItems: 'center', gap: 7 },
@@ -307,7 +290,7 @@ const styles = StyleSheet.create({
   cardTopic: { flex: 1, color: palette.cyanDeep, fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
   cardSignal: { color: palette.muted, fontSize: 10, lineHeight: 15, fontFamily: typography.regular },
   cardPrompt: { marginTop: 14, color: palette.ink, fontSize: 29, lineHeight: 39, fontFamily: typography.medium, letterSpacing: -0.5 },
-  formulaGroup: { marginTop: 18, marginHorizontal: -5, backgroundColor: 'transparent', overflow: 'hidden' },
+  formulaGroup: { marginTop: 20, marginHorizontal: -5, gap: 18 },
   answerSection: { marginTop: 25, paddingTop: 20, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.line },
   answerLabel: { marginBottom: 13, color: palette.inkSoft, fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
   answerRow: { minHeight: 36, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },

@@ -7,8 +7,8 @@ Quiz/CA dates, concise official academic-calendar periods, course notices,
 the runtime NTULearn calendar snapshot, and the exam-driven memory deck come
 from the Site API, so ordinary data changes do not require an app release. Real
 runtime content and the private feed URL are never bundled into GitHub source or
-the APK. Pull-to-refresh and the top-right status control update both the
-timetable, calendar, material catalog, and memory deck.
+the APK. Pull-to-refresh updates the timetable, calendar, material catalog, and
+memory deck; the passive footer identifies the installed update by publish time.
 
 The home screen is intentionally glanceable: next class, the next no-class
 period, at most three near-term items, and the fixed timetable. The
@@ -19,8 +19,10 @@ home screen and no second request is needed.
 
 The memory card on the home screen is a continuous, bidirectional carousel—not
 a daily card. Swipe either way for another prompt; tap once for the full answer,
-KaTeX formula, terminology, and a conditional “易错” note. Course tabs and the
-same left/right gesture remain available in the full-screen deck.
+native RaTeX formula, terminology, and a conditional “易错” note. Course tabs
+and the same left/right gesture remain available in the full-screen deck. RaTeX
+parses in Rust and draws directly to the Android Canvas; there is no formula
+WebView or DOM surface.
 
 ```bash
 npm run typecheck

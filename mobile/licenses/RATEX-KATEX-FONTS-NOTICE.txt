@@ -1,0 +1,13 @@
+KaTeX Font Software — attribution and license notice
+========================================================
+
+RaTeX bundles unmodified KaTeX mathematical fonts (KaTeX_*.ttf) from:
+https://github.com/KaTeX/KaTeX
+
+These font files are licensed under the SIL Open Font License, Version 1.1.
+
+Copyright (c) 2009-2010, Design Science, Inc. (<www.mathjax.org>)
+Copyright (c) 2014-2018 Khan Academy (<www.khanacademy.org>),
+with Reserved Font Name KaTeX_Main.
+
+The complete SIL Open Font License 1.1 text is included in OFL-1.1.txt.
