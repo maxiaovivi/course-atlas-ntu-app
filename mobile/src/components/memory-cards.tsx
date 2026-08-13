@@ -1,8 +1,10 @@
 /* eslint-disable react-hooks/set-state-in-effect -- The selected card follows asynchronously loaded backend data. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import { useFocusEffect } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,9 +13,9 @@ import { NativeMathFormula } from '@/components/native-math-formula';
 import { PressableScale } from '@/components/pressable-scale';
 import { palette } from '@/constants/palette';
 import { typography } from '@/constants/typography';
-import { StudyCard, studyCardDeck, studyCardsForCourse } from '@/core/study-cards';
+import { StudyCard, studyCardCourses, studyCardDeck, studyCardsForCourse } from '@/core/study-cards';
 
-const COURSES = ['EE6221', 'EE6406', 'EE6407', 'EE6497'] as const;
+const POSITION_KEY = 'course-atlas.memory.position.v1';
 
 export function MemoryCardCarousel({ cards, onOpen }: { cards: StudyCard[]; onOpen: (card: StudyCard) => void }) {
   const reducedMotion = useReducedMotion();
@@ -27,10 +29,20 @@ export function MemoryCardCarousel({ cards, onOpen }: { cards: StudyCard[]; onOp
     if (card && selectedId !== card.id) setSelectedId(card.id);
   }, [card, selectedId]);
 
+  // Resume from the card last seen here or in the full-screen reader.
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    void AsyncStorage.getItem(POSITION_KEY).then((value) => {
+      if (active && value && deck.some((item) => item.id === value)) setSelectedId(value);
+    });
+    return () => { active = false; };
+  }, [deck]));
+
   const move = useCallback((direction: -1 | 1) => {
     if (deck.length < 2) return;
     const next = (index + direction + deck.length) % deck.length;
     setSelectedId(deck[next].id);
+    void AsyncStorage.setItem(POSITION_KEY, deck[next].id).catch(() => undefined);
     void Haptics.selectionAsync();
   }, [deck, index]);
 
@@ -94,7 +106,8 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
     () => cards.find((card) => card.id === initialCardId) ?? null,
     [cards, initialCardId],
   );
-  const [course, setCourse] = useState<string>(initialCard?.courseCode ?? COURSES[0]);
+  const courses = useMemo(() => studyCardCourses(cards), [cards]);
+  const [course, setCourse] = useState<string>(initialCard?.courseCode ?? '');
   const [selectedId, setSelectedId] = useState(initialCard?.id ?? '');
   const appliedInitialId = useRef<string | null>(null);
   const contentScrollRef = useRef<ScrollView>(null);
@@ -106,6 +119,10 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
     setCourse(initialCard.courseCode);
     setSelectedId(initialCard.id);
   }, [initialCard]);
+
+  useEffect(() => {
+    if (!course && courses.length > 0) setCourse(courses[0]);
+  }, [course, courses]);
 
   const deck = useMemo(() => studyCardsForCourse(cards, course), [cards, course]);
   const currentIndex = Math.max(0, deck.findIndex((card) => card.id === selectedId));
@@ -119,6 +136,7 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
   useEffect(() => {
     if (!currentId) return;
     contentScrollRef.current?.scrollTo({ y: 0, animated: false });
+    void AsyncStorage.setItem(POSITION_KEY, currentId).catch(() => undefined);
   }, [course, currentId]);
 
   const move = useCallback((direction: -1 | 1) => {
@@ -184,7 +202,7 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
         </View>
 
         <View accessibilityRole="tablist" style={styles.courseTabs}>
-          {COURSES.map((code) => {
+          {courses.map((code) => {
             const active = code === course;
             const count = cards.filter((card) => card.courseCode === code).length;
             return <PressableScale
@@ -267,8 +285,8 @@ const styles = StyleSheet.create({
   previewHint: { color: palette.muted, fontSize: 11, lineHeight: 16, fontFamily: typography.regular },
   previewArrow: { color: '#70A8B4', fontSize: 21, lineHeight: 24, fontFamily: typography.regular },
   readerBackground: { flex: 1 },
-  readerGlow: { position: 'absolute', top: -160, right: -150, width: 390, height: 390, borderRadius: 200, backgroundColor: 'rgba(63,211,228,0.18)' },
-  readerShore: { position: 'absolute', left: -130, right: -120, bottom: -230, height: 390, borderTopLeftRadius: 280, borderTopRightRadius: 220, backgroundColor: 'rgba(255,248,225,0.58)', transform: [{ rotate: '-5deg' }] },
+  readerGlow: { position: 'absolute', top: -200, right: -180, width: 390, height: 390, borderRadius: 200, backgroundColor: 'rgba(63,211,228,0.11)' },
+  readerShore: { position: 'absolute', left: -130, right: -120, bottom: -280, height: 390, borderTopLeftRadius: 280, borderTopRightRadius: 220, backgroundColor: 'rgba(255,248,225,0.38)', transform: [{ rotate: '-4deg' }] },
   readerSafe: { flex: 1 },
   readerHeader: { height: 55, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(29,137,158,0.10)' },
   backButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },

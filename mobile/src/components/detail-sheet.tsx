@@ -103,7 +103,10 @@ function CourseMaterials({ materials }: { materials: LibraryMaterial[] }) {
           <View style={styles.pdfMark}><Text style={styles.pdfMarkText}>PDF</Text></View>
           <View style={styles.materialCopy}>
             <Text numberOfLines={2} style={styles.materialTitle}>{displayTitle(material)}</Text>
-            <Text style={styles.materialMeta}>{SHELF_LABELS[material.shelf]} · {formatMaterialSize(material.size)}</Text>
+            <Text style={styles.materialMeta}>
+              {SHELF_LABELS[material.shelf]} · {formatMaterialSize(material.size)}
+              {!material.readable && <Text style={styles.materialLock}> · 需登录</Text>}
+            </Text>
           </View>
           <Text style={styles.materialArrow}>›</Text>
         </PressableScale>)}
@@ -327,6 +330,7 @@ const styles = StyleSheet.create({
   materialCopy: { flex: 1, minWidth: 0, paddingVertical: 10 },
   materialTitle: { color: palette.ink, fontSize: 13, lineHeight: 18, fontFamily: typography.medium },
   materialMeta: { marginTop: 3, color: palette.muted, fontSize: 10, lineHeight: 14, fontFamily: typography.regular, fontVariant: ['tabular-nums'] },
+  materialLock: { color: palette.warning, fontFamily: typography.medium },
   materialArrow: { width: 13, color: '#70A8B4', textAlign: 'right', fontSize: 20, lineHeight: 25, fontFamily: typography.regular },
   agendaHeaderRow: { minHeight: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   agendaTitle: { marginTop: 10, color: palette.ink, fontSize: 24, lineHeight: 32, fontFamily: typography.medium, letterSpacing: -0.2 },

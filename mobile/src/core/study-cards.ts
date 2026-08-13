@@ -86,8 +86,13 @@ export function studyCardsForCourse(cards: StudyCard[], courseCode: string) {
     right.priority - left.priority || left.topic.localeCompare(right.topic, 'zh-CN') || left.id.localeCompare(right.id));
 }
 
+export function studyCardCourses(cards: StudyCard[]) {
+  return Array.from(new Set(cards.map((card) => card.courseCode)))
+    .sort((left, right) => left.localeCompare(right));
+}
+
 export function studyCardDeck(cards: StudyCard[]) {
-  const groups = ['EE6221', 'EE6406', 'EE6407', 'EE6497']
+  const groups = studyCardCourses(cards)
     .map((courseCode) => studyCardsForCourse(cards, courseCode));
   const deck: StudyCard[] = [];
   for (let index = 0; index < Math.max(0, ...groups.map((group) => group.length)); index += 1) {

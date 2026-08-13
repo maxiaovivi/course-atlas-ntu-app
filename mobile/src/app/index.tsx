@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import * as Updates from 'expo-updates';
@@ -13,7 +13,7 @@ import { typography } from '@/constants/typography';
 import { agendaDateParts, agendaTypeLabel, AgendaViewItem, upcomingAgendaItems } from '@/core/agenda';
 import { singaporeDateKey } from '@/core/calendar';
 import { materialsForCourse } from '@/core/library';
-import { AcademicCalendarItem, CourseSession, getNextClass } from '@/core/schedule';
+import { AcademicCalendarItem, CourseSession, getNextClass, NextClass } from '@/core/schedule';
 import { useCalendar } from '@/hooks/use-calendar';
 import { useLibrary } from '@/hooks/use-library';
 import { useNow } from '@/hooks/use-now';
@@ -55,6 +55,22 @@ function agendaAccent(item: AgendaViewItem) {
   return palette.notice;
 }
 
+function timeToMinutes(value: string) {
+  const [hour, minute] = value.split(':').map(Number);
+  return hour * 60 + minute;
+}
+
+// minutesAway <= 0 means the class has started but not yet ended.
+function nextClassStatus(next: NextClass) {
+  if (next.minutesAway <= 0) {
+    const remaining = timeToMinutes(next.end) - timeToMinutes(next.start) + next.minutesAway;
+    return { label: '正在上课', when: `还剩 ${Math.max(1, remaining)} 分钟` };
+  }
+  if (next.minutesAway < 60) return { label: '下一课', when: `${next.minutesAway} 分钟后` };
+  if (next.dayText === '今天') return { label: '下一课', when: `${Math.round(next.minutesAway / 60)} 小时后` };
+  return { label: '下一课', when: next.dayText };
+}
+
 function displayLocation(location: string, pending: boolean) {
   if (!pending || location.includes('待')) return location;
   return `${location} · 待确认`;
@@ -79,6 +95,15 @@ function breakCountdown(item: AcademicCalendarItem, now: Date) {
   const start = Date.parse(`${item.start}T00:00:00Z`);
   const current = Date.parse(`${today}T00:00:00Z`);
   return `${Math.max(0, Math.round((start - current) / 86_400_000))}天`;
+}
+
+function dataUpdatedLabel(updatedAt: string) {
+  const time = Date.parse(updatedAt);
+  if (!Number.isFinite(time)) return null;
+  const values = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Singapore', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(time)).map((part) => [part.type, part.value]));
+  return `数据 ${Number(values.month)}.${Number(values.day)} ${values.hour}:${values.minute}`;
 }
 
 function updateVersionLabel(createdAt: Date | undefined, isEmbeddedLaunch: boolean, isEmergencyLaunch: boolean) {
@@ -107,6 +132,7 @@ export default function HomeScreen() {
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const now = useNow();
   const nextClass = useMemo(() => getNextClass(schedule, now), [now, schedule]);
+  const nextStatus = nextClass ? nextClassStatus(nextClass) : null;
   const teachingFinished = Boolean(schedule.teachingEnd && singaporeDateKey(now) > schedule.teachingEnd);
   const allAgenda = useMemo(() => upcomingAgendaItems(schedule, calendar, now, 256), [calendar, now, schedule]);
   const agenda = useMemo(() => allAgenda.filter((item) => item.type !== 'academic').slice(0, 3), [allAgenda]);
@@ -127,13 +153,25 @@ export default function HomeScreen() {
     currentlyRunning.isEmergencyLaunch,
   );
 
-  const refreshIssue = scheduleError || calendarState === 'error' || libraryError || studyCardError
-    ? '失败'
-    : calendarSource === 'cache' || librarySource === 'cache' || studyCardSource === 'cache' ? '离线' : null;
+  const syncFailed = scheduleError || calendarState === 'error' || libraryError || studyCardError;
+  const usingCache = calendarSource === 'cache' || librarySource === 'cache' || studyCardSource === 'cache';
+  const dataLabel = dataUpdatedLabel(schedule.updatedAt);
+  const lastRefreshAt = useRef(0);
+  useEffect(() => { lastRefreshAt.current = Date.now(); }, []);
   const refreshAll = useCallback(async () => {
     if (syncing) return;
+    lastRefreshAt.current = Date.now();
     await Promise.allSettled([refreshSchedule(), activate(), refreshLibrary(), refreshStudyCards()]);
   }, [activate, refreshLibrary, refreshSchedule, refreshStudyCards, syncing]);
+
+  // Data is fetched on launch; refresh again when the app returns to the
+  // foreground after a while, so a long-lived process does not go stale.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && Date.now() - lastRefreshAt.current > 10 * 60_000) void refreshAll();
+    });
+    return () => subscription.remove();
+  }, [refreshAll]);
   const handlePullRefresh = useCallback(async () => {
     if (syncing || pullRefreshing) return;
     setPullRefreshing(true);
@@ -172,23 +210,20 @@ export default function HomeScreen() {
           />)}>
           <View style={styles.topbar}>
             <Text style={styles.brand}>知屿</Text>
+            <Text style={styles.topDate}>{todayLabel(now)}</Text>
           </View>
+          {syncFailed && !syncing && <Text style={styles.syncHint}>同步失败 · 正在显示缓存数据</Text>}
 
-          <View style={styles.heading}>
-            <Text style={styles.overline}>{todayLabel(now)}</Text>
-            <Text style={styles.title}>今日</Text>
-          </View>
-
-          {nextClass ? (
+          {nextClass && nextStatus ? (
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel={`下一节课程 ${nextClass.course.code}，${nextClass.start} 到 ${nextClass.end}，${nextClass.location}`}
+              accessibilityLabel={`${nextStatus.label} ${nextClass.course.code}，${nextStatus.when}，${nextClass.start} 到 ${nextClass.end}，${nextClass.location}`}
               style={styles.nextCard}
               onPress={() => selectCourse(nextClass.course)}>
               <LinearGradient colors={['#169FBE', '#38C5D0']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.nextGradient}>
                 <View style={styles.nextTop}>
-                  <Text style={styles.nextLabel}>下一课</Text>
-                  <Text style={styles.nextDay}>{nextClass.dayText}</Text>
+                  <Text style={styles.nextLabel}>{nextStatus.label}</Text>
+                  <Text style={styles.nextDay}>{nextStatus.when}</Text>
                 </View>
                 <Text style={styles.nextCode}>{nextClass.course.code}</Text>
                 <View style={styles.nextBottom}>
@@ -275,9 +310,9 @@ export default function HomeScreen() {
           </>}
 
           <Text
-            accessibilityLabel={`当前运行版本，${versionLabel}${isUpdatePending ? '，新版待重启' : ''}${refreshIssue ? `，${refreshIssue}` : ''}`}
-            style={[styles.versionText, refreshIssue && styles.versionIssue]}>
-            {versionLabel}{isUpdatePending ? ' · 新版待重启' : ''}{refreshIssue ? ` · ${refreshIssue}` : ''}
+            accessibilityLabel={`当前运行版本，${versionLabel}${dataLabel ? `，${dataLabel}` : ''}${isUpdatePending ? '，新版待重启' : ''}${usingCache && !syncFailed ? '，离线缓存' : ''}`}
+            style={[styles.versionText, syncFailed && styles.versionIssue]}>
+            {versionLabel}{dataLabel ? ` · ${dataLabel}` : ''}{isUpdatePending ? ' · 新版待重启' : ''}{usingCache && !syncFailed ? ' · 离线缓存' : ''}
           </Text>
         </ScrollView>
       </SafeAreaView>
@@ -290,13 +325,12 @@ const styles = StyleSheet.create({
   background: { flex: 1 },
   safeArea: { flex: 1 },
   content: { paddingHorizontal: 20, paddingBottom: 40 },
-  glow: { position: 'absolute', top: -90, right: -110, width: 315, height: 315, borderRadius: 165, backgroundColor: 'rgba(63, 211, 228, 0.21)' },
-  shore: { position: 'absolute', left: -80, right: -100, bottom: -150, height: 330, borderTopLeftRadius: 250, borderTopRightRadius: 180, backgroundColor: 'rgba(255, 248, 225, 0.62)', transform: [{ rotate: '-5deg' }] },
-  topbar: { minHeight: 58, flexDirection: 'row', alignItems: 'center' },
-  brand: { color: palette.ink, fontSize: 27, lineHeight: 34, fontFamily: typography.display },
-  heading: { marginTop: 18, marginBottom: 16 },
-  overline: { color: '#4F8997', fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
-  title: { marginTop: 3, color: palette.ink, fontSize: 39, lineHeight: 49, fontFamily: typography.display },
+  glow: { position: 'absolute', top: -130, right: -140, width: 315, height: 315, borderRadius: 165, backgroundColor: 'rgba(63, 211, 228, 0.12)' },
+  shore: { position: 'absolute', left: -80, right: -100, bottom: -210, height: 330, borderTopLeftRadius: 250, borderTopRightRadius: 180, backgroundColor: 'rgba(255, 248, 225, 0.4)', transform: [{ rotate: '-4deg' }] },
+  topbar: { minHeight: 64, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  brand: { color: palette.ink, fontSize: 31, lineHeight: 42, fontFamily: typography.display },
+  topDate: { color: '#4F8997', fontSize: 13, lineHeight: 18, fontFamily: typography.medium },
+  syncHint: { marginTop: -4, marginBottom: 10, color: 'rgba(184, 91, 73, 0.85)', fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
   nextCard: { borderRadius: 24, shadowColor: '#0788A9', shadowOpacity: 0.17, shadowRadius: 20, shadowOffset: { width: 0, height: 11 }, elevation: 9 },
   nextGradient: { minHeight: 144, padding: 20, borderRadius: 24, overflow: 'hidden' },
   nextTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -314,8 +348,8 @@ const styles = StyleSheet.create({
   calendarHeading: { color: palette.cyanDeep, fontSize: 22, lineHeight: 30, fontFamily: typography.display },
   calendarSummary: { flex: 1, color: palette.inkSoft, fontSize: 13, lineHeight: 19, fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
   calendarArrow: { color: '#70A8B4', fontSize: 23, lineHeight: 28, fontFamily: typography.regular },
-  sectionHeader: { marginTop: 23, marginBottom: 8, paddingHorizontal: 2 },
-  sectionTitle: { color: palette.ink, fontSize: 17, lineHeight: 23, fontFamily: typography.medium },
+  sectionHeader: { marginTop: 24, marginBottom: 8, paddingHorizontal: 2 },
+  sectionTitle: { color: palette.ink, fontSize: 21, lineHeight: 30, fontFamily: typography.display },
   agendaList: { paddingHorizontal: 14, borderWidth: 1, borderColor: palette.line, borderRadius: 20, backgroundColor: palette.glass },
   agendaRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 11 },
   rowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.line },
