@@ -120,16 +120,22 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
     if (move(direction)) void Haptics.selectionAsync();
   }, [move]);
 
+  const scrollGesture = Gesture.Native();
   const pan = Gesture.Pan()
-    .activeOffsetX([-18, 18])
-    .failOffsetY([-14, 14])
+    .activeOffsetX([-24, 24])
+    .failOffsetY([-10, 10])
+    .simultaneousWithExternalGesture(scrollGesture)
     .onUpdate((event) => { dragX.value = Math.max(-78, Math.min(78, event.translationX)); })
     .onEnd((event) => {
       if (event.translationX < -52 || event.velocityX < -620) runOnJS(swipe)(1);
       else if (event.translationX > 52 || event.velocityX > 620) runOnJS(swipe)(-1);
       dragX.value = reducedMotion ? 0 : withSpring(0, { damping: 20, stiffness: 250, mass: 0.58 });
+    })
+    .onFinalize((_event, success) => {
+      if (!success) {
+        dragX.value = reducedMotion ? 0 : withSpring(0, { damping: 20, stiffness: 250, mass: 0.58 });
+      }
     });
-  const cardGesture = Gesture.Simultaneous(pan, Gesture.Native());
   const cardStyle = useAnimatedStyle(() => ({
     opacity: 1 - Math.min(Math.abs(dragX.value) / 250, 0.16),
     transform: [{ translateX: dragX.value }],
@@ -187,15 +193,16 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
           })}
         </View>
 
-        {current ? <GestureDetector gesture={cardGesture}>
+        {current ? <GestureDetector gesture={pan}>
           <Animated.View style={[styles.readerBody, cardStyle]}>
-            <ScrollView
-              ref={contentScrollRef}
-              nestedScrollEnabled
-              overScrollMode="never"
-              showsVerticalScrollIndicator
-              style={styles.readerScroll}
-              contentContainerStyle={styles.readerContent}>
+            <GestureDetector gesture={scrollGesture}>
+              <ScrollView
+                ref={contentScrollRef}
+                nestedScrollEnabled
+                overScrollMode="never"
+                showsVerticalScrollIndicator
+                style={styles.readerScroll}
+                contentContainerStyle={styles.readerContent}>
               <View style={styles.cardHeader}>
                 <Text style={styles.cardTopic}>{current.topic}</Text>
                 <Text style={styles.cardSignal}>{current.signal}</Text>
@@ -271,7 +278,8 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
                   />
                 </View>
               </View>}
-            </ScrollView>
+              </ScrollView>
+            </GestureDetector>
           </Animated.View>
         </GestureDetector> : <View style={styles.readerEmpty}>
           <Text style={styles.readerEmptyText}>正在载入记忆卡</Text>
