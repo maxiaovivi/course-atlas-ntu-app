@@ -79,6 +79,7 @@ export function MemoryCardCarousel({ cards, onOpen }: { cards: StudyCard[]; onOp
             <NativeMathFormula
               latex={formula}
               fontSize={19}
+              color={palette.ink}
             />
           </View>}
           <View style={styles.previewBottom}>
@@ -278,7 +279,7 @@ const styles = StyleSheet.create({
   previewTitle: { color: palette.cyanDeep, fontSize: 22, lineHeight: 29, fontFamily: typography.display },
   previewMeta: { flex: 1, color: palette.muted, fontSize: 10, lineHeight: 15, textAlign: 'right', fontFamily: typography.medium },
   previewPrompt: { marginTop: 9, color: palette.ink, fontSize: 20, lineHeight: 28, fontFamily: typography.medium, letterSpacing: -0.2 },
-  previewFormula: { marginTop: 10, marginHorizontal: -4 },
+  previewFormula: { marginTop: 12, paddingVertical: 11, paddingHorizontal: 12, borderRadius: 14, backgroundColor: 'rgba(22, 159, 190, 0.07)' },
   previewBottom: { minHeight: 24, marginTop: 5, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   previewProgress: { color: palette.muted, fontSize: 10, lineHeight: 15, fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
   previewAction: { flexDirection: 'row', alignItems: 'center', gap: 7 },
