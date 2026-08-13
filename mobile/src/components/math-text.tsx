@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { StyleSheet, Text, TextStyle, View, ViewStyle } from 'react-native';
+import { StyleProp, StyleSheet, Text, TextStyle, View, ViewStyle } from 'react-native';
 import { InlineTeX } from 'ratex-react-native';
 
 import { toInlineMathContent } from '@/core/inline-math';
@@ -10,8 +10,8 @@ type Props = {
   color: string;
   fontFamily?: string;
   numberOfLines?: number;
-  style?: TextStyle;
-  containerStyle?: ViewStyle;
+  style?: StyleProp<TextStyle>;
+  containerStyle?: StyleProp<ViewStyle>;
 };
 
 // Renders card text as native text, upgrading TeX-like tokens (`K_i`,

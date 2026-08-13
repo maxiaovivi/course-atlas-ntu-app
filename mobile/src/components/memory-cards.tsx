@@ -14,6 +14,8 @@ import { NativeMathFormula } from '@/components/native-math-formula';
 import { PressableScale } from '@/components/pressable-scale';
 import { palette } from '@/constants/palette';
 import { typography } from '@/constants/typography';
+import { readerCardLayout, splitCardPrompt } from '@/core/card-prompt';
+import { toInlineMathContent } from '@/core/inline-math';
 import { StudyCard } from '@/core/study-cards';
 import { useHomeDeck, useReaderDeck } from '@/hooks/use-memory-deck';
 import { getDeckState } from '@/services/deck-store';
@@ -59,6 +61,8 @@ export function MemoryCardCarousel({ cards, onOpen }: { cards: StudyCard[]; onOp
 
   if (!ready || !card) return null;
   const formula = card.latex[0] ?? null;
+  const prompt = splitCardPrompt(card.prompt);
+  const previewHasMath = toInlineMathContent(prompt.head).hasMath;
   return (
     <GestureDetector gesture={pan}>
       <Animated.View style={swipeStyle}>
@@ -71,20 +75,24 @@ export function MemoryCardCarousel({ cards, onOpen }: { cards: StudyCard[]; onOp
             <Text style={styles.previewTitle}>记忆</Text>
             <Text numberOfLines={1} style={styles.previewMeta}>{card.courseCode} · {card.signal}</Text>
           </View>
-          <View style={styles.previewPromptWrap}>
+          <View style={[
+            styles.previewPromptWrap,
+            !previewHasMath && styles.previewPromptClamp,
+          ]}>
             <MathText
-              text={card.prompt}
-              fontSize={23}
+              text={prompt.head}
+              fontSize={previewHasMath ? 18 : 20}
               color={palette.ink}
               fontFamily={typography.medium}
               numberOfLines={2}
               style={styles.previewPromptText}
             />
           </View>
+          {prompt.cue && <Text numberOfLines={1} style={styles.previewCue}>{prompt.cue}</Text>}
           {formula && <View pointerEvents="none" style={styles.previewFormula}>
             <NativeMathFormula
               latex={formula}
-              fontSize={21}
+              fontSize={18}
               color={palette.ink}
             />
           </View>}
@@ -110,6 +118,8 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
   const contentScrollRef = useRef<ScrollView>(null);
   const dragX = useSharedValue(0);
   const currentId = current?.id ?? null;
+  const prompt = current ? splitCardPrompt(current.prompt) : null;
+  const layout = current && prompt ? readerCardLayout(prompt.head, current.latex.length) : null;
 
   useEffect(() => {
     if (!currentId) return;
@@ -205,46 +215,69 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
                 contentContainerStyle={styles.readerContent}>
               <View style={styles.cardHeader}>
                 <Text style={styles.cardTopic}>{current.topic}</Text>
-                <Text style={styles.cardSignal}>{current.signal}</Text>
+                <Text numberOfLines={1} style={styles.cardSignal}>{current.signal}</Text>
               </View>
               <View style={styles.cardPromptWrap}>
                 <MathText
-                  text={current.prompt}
-                  fontSize={29}
+                  text={prompt?.head ?? current.prompt}
+                  fontSize={layout?.promptFontSize ?? 25}
                   color={palette.ink}
                   fontFamily={typography.medium}
-                  style={styles.cardPromptText}
+                  style={[
+                    styles.cardPromptText,
+                    {
+                      letterSpacing: layout?.promptLetterSpacing ?? -0.4,
+                      lineHeight: layout?.promptLineHeight ?? 33,
+                    },
+                  ]}
                 />
               </View>
+              {prompt?.cue && <Text style={[
+                styles.cardCue,
+                { marginTop: layout?.cueMarginTop ?? 6 },
+              ]}>{prompt.cue}</Text>}
 
-              {current.latex.length > 0 && <View pointerEvents="none" style={styles.formulaGroup}>
+              {current.latex.length > 0 && <View pointerEvents="none" style={[
+                styles.formulaGroup,
+                {
+                  gap: layout?.formulaGap ?? 0,
+                  marginTop: layout?.formulaMarginTop ?? 20,
+                },
+              ]}>
                 {current.latex.map((latex, formulaIndex) => (
                   <NativeMathFormula
                     key={`${current.id}-formula-${formulaIndex}`}
                     latex={latex}
-                    fontSize={22}
+                    fontSize={layout?.formulaFontSize ?? 21}
                   />
                 ))}
               </View>}
 
-              <View style={styles.answerSection}>
+              <View style={[
+                styles.answerSection,
+                { marginTop: layout?.answerMarginTop ?? 24 },
+              ]}>
                 <Text style={styles.answerLabel}>记住</Text>
-                {current.answer.map((answer, answerIndex) => <View key={answer} style={styles.answerRow}>
-                  <Text style={styles.answerIndex}>{answerIndex + 1}</Text>
-                  <View style={styles.answerBody}>
-                    <MathText
-                      text={answer}
-                      fontSize={16}
-                      color={palette.ink}
-                      fontFamily={typography.regular}
-                      style={styles.answerText}
-                    />
-                  </View>
-                </View>)}
+                <View style={styles.answerList}>
+                  {current.answer.map((answer, answerIndex) => <View key={answer} style={styles.answerRow}>
+                    <Text style={styles.answerIndex}>{answerIndex + 1}</Text>
+                    <View style={styles.answerBody}>
+                      <MathText
+                        text={answer}
+                        fontSize={16}
+                        color={palette.ink}
+                        fontFamily={typography.regular}
+                        style={styles.answerText}
+                      />
+                    </View>
+                  </View>)}
+                </View>
               </View>
 
               {current.terms.length > 0 && <View style={styles.termSection}>
-                {current.terms.map((term, termIndex) => <View key={term.term} style={[styles.termRow, termIndex < current.terms.length - 1 && styles.termRowBorder]}>
+                <Text style={styles.termLabel}>术语</Text>
+                <View style={styles.termList}>
+                  {current.terms.map((term, termIndex) => <View key={`${term.term}-${termIndex}`} style={[styles.termRow, termIndex < current.terms.length - 1 && styles.termRowBorder]}>
                   <View style={styles.termNameWrap}>
                     <MathText
                       text={term.term}
@@ -263,7 +296,8 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
                       style={styles.termText}
                     />
                   </View>
-                </View>)}
+                  </View>)}
+                </View>
               </View>}
 
               {current.trap && <View style={styles.trap}>
@@ -295,8 +329,10 @@ const styles = StyleSheet.create({
   previewTitle: { color: palette.cyanDeep, fontSize: 24, lineHeight: 30, fontFamily: typography.display },
   previewMeta: { flex: 1, color: palette.muted, fontSize: 10, lineHeight: 15, textAlign: 'right', fontFamily: typography.medium },
   previewPromptWrap: { marginTop: 10 },
-  previewPromptText: { lineHeight: 31, letterSpacing: -0.2 },
-  previewFormula: { marginTop: 14 },
+  previewPromptClamp: { maxHeight: 54, overflow: 'hidden' },
+  previewPromptText: { lineHeight: 27, letterSpacing: -0.2 },
+  previewCue: { marginTop: 4, color: palette.cyanDeep, fontSize: 13, lineHeight: 18, fontFamily: typography.medium },
+  previewFormula: { marginTop: 12 },
   previewBottom: { minHeight: 24, marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   previewProgress: { color: palette.muted, fontSize: 10, lineHeight: 15, fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
   previewArrow: { color: '#70A8B4', fontSize: 22, lineHeight: 25, fontFamily: typography.regular },
@@ -322,24 +358,28 @@ const styles = StyleSheet.create({
   readerContent: { width: '100%', maxWidth: 680, alignSelf: 'center', paddingHorizontal: 23, paddingTop: 20, paddingBottom: 72 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
   cardTopic: { flex: 1, color: palette.cyanDeep, fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
-  cardSignal: { color: palette.muted, fontSize: 10, lineHeight: 15, fontFamily: typography.regular },
-  cardPromptWrap: { marginTop: 14 },
-  cardPromptText: { lineHeight: 39, letterSpacing: -0.5 },
-  formulaGroup: { marginTop: 20, marginHorizontal: -5, gap: 18 },
-  answerSection: { marginTop: 25, paddingTop: 20, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.line },
-  answerLabel: { marginBottom: 13, color: palette.inkSoft, fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
-  answerRow: { minHeight: 36, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  answerIndex: { width: 21, height: 21, paddingTop: 1, borderRadius: 11, color: palette.cyanDeep, backgroundColor: '#E0F6F8', fontSize: 10, lineHeight: 19, textAlign: 'center', fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
+  cardSignal: { maxWidth: '58%', color: palette.muted, fontSize: 10, lineHeight: 15, textAlign: 'right', fontFamily: typography.regular },
+  cardPromptWrap: { marginTop: 12 },
+  cardPromptText: {},
+  cardCue: { color: palette.cyanDeep, fontSize: 15, lineHeight: 21, fontFamily: typography.medium },
+  formulaGroup: { marginHorizontal: -5 },
+  answerSection: { paddingTop: 20, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.line },
+  answerLabel: { marginBottom: 12, color: palette.inkSoft, fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
+  answerList: { gap: 14 },
+  answerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  answerIndex: { width: 18, color: palette.cyanDeep, fontSize: 13, lineHeight: 25, textAlign: 'left', fontFamily: typography.medium, fontVariant: ['tabular-nums'] },
   answerBody: { flex: 1, minWidth: 0 },
   answerText: { lineHeight: 25 },
-  termSection: { marginTop: 21, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.line },
-  termRow: { minHeight: 50, paddingVertical: 13, flexDirection: 'row', alignItems: 'flex-start', gap: 16 },
+  termSection: { marginTop: 22, paddingTop: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.line },
+  termLabel: { color: palette.inkSoft, fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
+  termList: { marginTop: 8 },
+  termRow: { paddingVertical: 10 },
   termRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.line },
-  termNameWrap: { width: 96 },
-  termMeaningWrap: { flex: 1, minWidth: 0 },
-  termText: { lineHeight: 20 },
-  trap: { marginTop: 22, paddingLeft: 15, paddingVertical: 4, borderLeftWidth: 3, borderLeftColor: palette.quiz },
-  trapLabel: { color: palette.quiz, fontSize: 10, lineHeight: 15, fontFamily: typography.medium },
+  termNameWrap: { width: '100%' },
+  termMeaningWrap: { width: '100%', marginTop: 2 },
+  termText: { lineHeight: 19 },
+  trap: { marginTop: 24, paddingLeft: 15, paddingVertical: 4, borderLeftWidth: 3, borderLeftColor: palette.quiz },
+  trapLabel: { color: palette.quiz, fontSize: 11, lineHeight: 16, fontFamily: typography.medium },
   trapBody: { marginTop: 4 },
   trapText: { lineHeight: 22 },
   readerEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 72 },
