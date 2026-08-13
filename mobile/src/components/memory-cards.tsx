@@ -122,8 +122,9 @@ export function MemoryReader({ cards, initialCardId, onClose }: ReaderProps) {
   }, [initialCard]);
 
   useEffect(() => {
-    if (!course && courses.length > 0) setCourse(courses[0]);
-  }, [course, courses]);
+    // Fallback only when no initial card will claim the course selection.
+    if (!course && courses.length > 0 && !initialCard) setCourse(courses[0]);
+  }, [course, courses, initialCard]);
 
   const deck = useMemo(() => studyCardsForCourse(cards, course), [cards, course]);
   const currentIndex = Math.max(0, deck.findIndex((card) => card.id === selectedId));
