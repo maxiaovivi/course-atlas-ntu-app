@@ -5,6 +5,11 @@ import { emptyStudyCards, isStudyCardsPayload, StudyCardsPayload } from '@/core/
 const CACHE_KEY = 'course-atlas.study-cards.v1';
 const API_BASE_URL = (process.env.EXPO_PUBLIC_COURSE_ATLAS_URL || 'https://fatemeeting.site').replace(/\/$/, '');
 const MAX_RESPONSE_CHARS = 256 * 1024;
+// Production latency probes measured ~3.0s / 6.0s / 17.2s; the previous 4.5s
+// abort made slow-but-healthy responses look like failures and pinned the UI
+// to stale cache. Cache paints first, so this fetch runs in the background
+// and can afford to wait out a slow origin.
+const FETCH_TIMEOUT_MS = 20_000;
 
 export type StudyCardSource = 'empty' | 'cache' | 'live';
 
@@ -32,9 +37,12 @@ export async function readCachedStudyCards() {
 
 export async function fetchStudyCards(): Promise<StudyCardsPayload> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 4500);
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(`${API_BASE_URL}/api/study-cards`, {
+    // A refresh must observe the latest R2 snapshot. The public endpoint may
+    // otherwise legally serve a stale response for up to ten minutes, which
+    // previously left an updated 108-card deck appearing as the cached 103.
+    const response = await fetch(`${API_BASE_URL}/api/study-cards?refresh=${Date.now()}`, {
       headers: { Accept: 'application/json' },
       signal: controller.signal,
     });

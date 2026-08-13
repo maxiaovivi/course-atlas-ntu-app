@@ -212,8 +212,6 @@ export default function HomeScreen() {
             <Text style={styles.brand}>知屿</Text>
             <Text style={styles.topDate}>{todayLabel(now)}</Text>
           </View>
-          {syncFailed && !syncing && <Text style={styles.syncHint}>同步失败 · 正在显示缓存数据</Text>}
-
           {nextClass && nextStatus ? (
             <PressableScale
               accessibilityRole="button"
@@ -310,9 +308,9 @@ export default function HomeScreen() {
           </>}
 
           <Text
-            accessibilityLabel={`当前运行版本，${versionLabel}${dataLabel ? `，${dataLabel}` : ''}${isUpdatePending ? '，新版待重启' : ''}${usingCache && !syncFailed ? '，离线缓存' : ''}`}
+            accessibilityLabel={`当前运行版本，${versionLabel}${dataLabel ? `，${dataLabel}` : ''}${isUpdatePending ? '，新版待重启' : ''}${syncFailed && !syncing ? '，同步失败' : ''}${usingCache ? '，离线缓存' : ''}`}
             style={[styles.versionText, syncFailed && styles.versionIssue]}>
-            {versionLabel}{dataLabel ? ` · ${dataLabel}` : ''}{isUpdatePending ? ' · 新版待重启' : ''}{usingCache && !syncFailed ? ' · 离线缓存' : ''}
+            {versionLabel}{dataLabel ? ` · ${dataLabel}` : ''}{isUpdatePending ? ' · 新版待重启' : ''}{syncFailed && !syncing ? ' · 同步失败' : ''}{usingCache ? ' · 离线缓存' : ''}
           </Text>
         </ScrollView>
       </SafeAreaView>
@@ -330,7 +328,6 @@ const styles = StyleSheet.create({
   topbar: { minHeight: 64, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   brand: { color: palette.ink, fontSize: 31, lineHeight: 42, fontFamily: typography.display },
   topDate: { color: '#4F8997', fontSize: 13, lineHeight: 18, fontFamily: typography.medium },
-  syncHint: { marginTop: -4, marginBottom: 10, color: 'rgba(184, 91, 73, 0.85)', fontSize: 12, lineHeight: 17, fontFamily: typography.medium },
   nextCard: { borderRadius: 24, shadowColor: '#0788A9', shadowOpacity: 0.17, shadowRadius: 20, shadowOffset: { width: 0, height: 11 }, elevation: 9 },
   nextGradient: { minHeight: 144, padding: 20, borderRadius: 24, overflow: 'hidden' },
   nextTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

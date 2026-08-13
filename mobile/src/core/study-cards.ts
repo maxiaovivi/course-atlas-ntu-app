@@ -81,25 +81,7 @@ export function isStudyCardsPayload(value: unknown): value is StudyCardsPayload 
     && new Set(payload.cards.map((card) => card.id)).size === payload.cards.length;
 }
 
-export function studyCardsForCourse(cards: StudyCard[], courseCode: string) {
-  return cards.filter((card) => card.courseCode === courseCode).slice().sort((left, right) =>
-    right.priority - left.priority || left.topic.localeCompare(right.topic, 'zh-CN') || left.id.localeCompare(right.id));
-}
-
 export function studyCardCourses(cards: StudyCard[]) {
   return Array.from(new Set(cards.map((card) => card.courseCode)))
     .sort((left, right) => left.localeCompare(right));
-}
-
-export function studyCardDeck(cards: StudyCard[]) {
-  const groups = studyCardCourses(cards)
-    .map((courseCode) => studyCardsForCourse(cards, courseCode));
-  const deck: StudyCard[] = [];
-  for (let index = 0; index < Math.max(0, ...groups.map((group) => group.length)); index += 1) {
-    for (const group of groups) {
-      const card = group[index];
-      if (card) deck.push(card);
-    }
-  }
-  return deck;
 }
